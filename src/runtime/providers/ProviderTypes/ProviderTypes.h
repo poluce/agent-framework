@@ -47,8 +47,8 @@
  * Adapter/通道额外：
  *   #include "providers/ProviderTypes/ProviderAdapterTypes.h"
  *
- * 扩展本协议时：遵循仓库 skills/update-provider-protocol/SKILL.md
- * （无 Opaque；查厂商文档后再加一等 kind；同步 docs/provider-protocol.md）
+ * 扩展本协议时：遵循 .agents/skills/update-provider-protocol/SKILL.md
+ * （无 Opaque；查厂商文档后再加一等 kind；同步 docs/协议/provider-protocol.md）
  */
 
 #include "ProviderCommon.h"

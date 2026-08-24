@@ -20,4 +20,6 @@ cmake --install ../build/framework-Debug --prefix <prefix> --component AgentFram
 
 本产品仓库通过 `add_subdirectory(framework)` 消费这份源；也可 `-DAGENT_QT_USE_INSTALLED_FRAMEWORK=ON` 对安装包 `find_package`（开测试时只跑 `tests/`，链导入目标）。
 
-公开头：`framework/AgentFramework.h`。仓外最小宿主：`examples/minimal`。
+公开头：`src/runtime/framework/AgentFramework.h`。仓外最小宿主：`examples/minimal`。
+
+Provider 协议演进：`.agents/skills/update-provider-protocol/SKILL.md`；正文 `docs/协议/provider-protocol.md`。

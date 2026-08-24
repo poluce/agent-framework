@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1000" width="1100" height="1000" role="img" aria-label="ProviderTypes 中间协议 v2 结构总览">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+    <filter id="s" x="-2%" y="-2%" width="104%" height="108%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.07"/>
+    </filter>
+  </defs>
+
+  <rect width="1100" height="1000" fill="#f8fafc"/>
+  <rect x="24" y="20" width="1052" height="960" rx="14" fill="#ffffff" stroke="#e2e8f0" filter="url(#s)"/>
+
+  <!-- 标题 -->
+  <text x="550" y="52" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#0f172a">ProviderTypes · 中间协议 v2</text>
+  <text x="550" y="74" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#64748b">kProviderProtocolVersion = 2 · 入出同型 ProviderItem · 已冻结</text>
+  <text x="550" y="94" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#94a3b8">目录：providers/ProviderTypes/{Common · Item · Request · Event} · 聚合头 ProviderTypes.h</text>
+
+  <!-- 顶层三块 -->
+  <rect x="48" y="118" width="320" height="56" rx="10" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="208" y="144" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#1d4ed8">入 · 文档式请求</text>
+  <text x="208" y="162" text-anchor="middle" font-family="Consolas, monospace" font-size="14" font-weight="700" fill="#1e3a8a">ProviderRequest</text>
+
+  <rect x="390" y="118" width="320" height="56" rx="10" fill="#ffedd5" stroke="#fdba74"/>
+  <text x="550" y="144" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#c2410c">终态 · 入出共用</text>
+  <text x="550" y="162" text-anchor="middle" font-family="Consolas, monospace" font-size="14" font-weight="700" fill="#9a3412">ProviderItem</text>
+
+  <rect x="732" y="118" width="320" height="56" rx="10" fill="#dcfce7" stroke="#86efac"/>
+  <text x="892" y="144" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#15803d">出 · 流式事件</text>
+  <text x="892" y="162" text-anchor="middle" font-family="Consolas, monospace" font-size="14" font-weight="700" fill="#14532d">ProviderEvent</text>
+
+  <path d="M 368 146 L 390 146" fill="none" stroke="#94a3b8" stroke-width="1.8" marker-end="url(#arr)"/>
+  <path d="M 710 146 L 732 146" fill="none" stroke="#94a3b8" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="550" y="112" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8">items / outputItems 同型</text>
+
+  <!-- Request -->
+  <rect x="48" y="196" width="320" height="430" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="64" y="222" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="700" fill="#334155">请求字段 · ProviderRequest.h</text>
+
+  <rect x="64" y="236" width="288" height="52" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="78" y="258" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#64748b">身份</text>
+  <text x="78" y="276" font-family="Consolas, monospace" font-size="11" fill="#0f172a">requestId · conversationId</text>
+
+  <rect x="64" y="298" width="288" height="78" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="78" y="320" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#1d4ed8">上下文 ★</text>
+  <text x="78" y="340" font-family="Consolas, monospace" font-size="11" fill="#0f172a">systemPrompt</text>
+  <text x="78" y="358" font-family="Consolas, monospace" font-size="11" fill="#0f172a">items[] · continuationId</text>
+
+  <rect x="64" y="386" width="288" height="52" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="78" y="408" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#64748b">工具</text>
+  <text x="78" y="426" font-family="Consolas, monospace" font-size="11" fill="#0f172a">tools[] · toolChoice</text>
+
+  <rect x="64" y="448" width="288" height="52" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="78" y="470" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#64748b">采样 / 输出</text>
+  <text x="78" y="488" font-family="Consolas, monospace" font-size="11" fill="#0f172a">temperature · maxTokens · stream · desiredOutput</text>
+
+  <rect x="64" y="510" width="288" height="52" rx="8" fill="#fef3c7" stroke="#fcd34d"/>
+  <text x="78" y="532" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#b45309">选项</text>
+  <text x="78" y="550" font-family="Consolas, monospace" font-size="11" fill="#0f172a">reasoning · audio · metadata</text>
+
+  <text x="208" y="590" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8">reasoning.effort = low|medium|high</text>
+  <text x="208" y="608" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8">audio.voice / requestTranscript</text>
+
+  <!-- Item -->
+  <rect x="390" y="196" width="320" height="430" rx="12" fill="#fffbeb" stroke="#fdba74"/>
+  <text x="406" y="222" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="700" fill="#9a3412">Item 五种 kind · ProviderItem.h</text>
+
+  <rect x="406" y="236" width="288" height="40" rx="8" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="550" y="262" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#9a3412">UserMessage</text>
+
+  <rect x="406" y="286" width="288" height="40" rx="8" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="550" y="312" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#9a3412">AssistantMessage</text>
+
+  <rect x="406" y="336" width="288" height="40" rx="8" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="550" y="362" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#9a3412">FunctionCall</text>
+
+  <rect x="406" y="386" width="288" height="40" rx="8" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="550" y="412" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#9a3412">FunctionCallOutput</text>
+
+  <rect x="406" y="436" width="288" height="40" rx="8" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="550" y="462" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#9a3412">Reasoning</text>
+
+  <rect x="406" y="496" width="288" height="100" rx="8" fill="#ffffff" stroke="#fbbf24"/>
+  <text x="550" y="520" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#b45309">MessagePart · Common 资产</text>
+  <text x="550" y="544" text-anchor="middle" font-family="Consolas, monospace" font-size="12" fill="#0f172a">Text · Image · Audio</text>
+  <text x="550" y="568" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#78716c">ImageAsset / AudioAsset</text>
+  <text x="550" y="584" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#78716c">uri | bytes + mimeType</text>
+
+  <!-- Event -->
+  <rect x="732" y="196" width="320" height="430" rx="12" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="748" y="222" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="700" fill="#166534">事件 kind · ProviderEvent.h</text>
+
+  <text x="760" y="252" font-family="Consolas, monospace" font-size="11" fill="#14532d">MessageStarted</text>
+  <text x="760" y="274" font-family="Consolas, monospace" font-size="11" fill="#14532d">TextDelta</text>
+  <text x="760" y="296" font-family="Consolas, monospace" font-size="11" fill="#14532d">ReasoningDelta</text>
+  <text x="760" y="318" font-family="Consolas, monospace" font-size="11" fill="#14532d">ToolCallStarted / Completed</text>
+  <text x="760" y="340" font-family="Consolas, monospace" font-size="11" fill="#14532d">ImageOutput</text>
+  <text x="760" y="362" font-family="Consolas, monospace" font-size="11" fill="#14532d">AudioDelta</text>
+  <text x="760" y="384" font-family="Consolas, monospace" font-size="11" fill="#14532d">TranscriptDelta</text>
+  <text x="760" y="406" font-family="Consolas, monospace" font-size="11" fill="#14532d">UsageUpdated</text>
+  <text x="760" y="428" font-family="Consolas, monospace" font-size="11" fill="#14532d">MessageCompleted ★</text>
+  <text x="760" y="450" font-family="Consolas, monospace" font-size="11" fill="#14532d">Error / Cancelled</text>
+
+  <rect x="748" y="472" width="288" height="70" rx="8" fill="#ffffff" stroke="#86efac"/>
+  <text x="892" y="500" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" font-weight="600" fill="#166534">MessageCompleted</text>
+  <text x="892" y="522" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#0f172a">outputItems: ProviderItem[]</text>
+  <text x="892" y="538" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">写账本权威完成态</text>
+
+  <text x="892" y="590" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8">扁平信封 + 工厂 · 非 variant</text>
+  <text x="892" y="608" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#94a3b8">DeltaPayload 共用 · TurnState 瞬态</text>
+
+  <!-- 数据流 -->
+  <rect x="48" y="648" width="1004" height="100" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
+  <text x="550" y="676" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="700" fill="#334155">数据流</text>
+
+  <rect x="80" y="696" width="140" height="36" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="150" y="720" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f172a">账本</text>
+  <path d="M 220 714 L 250 714" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <rect x="252" y="696" width="160" height="36" rx="8" fill="#dbeafe" stroke="#93c5fd"/>
+  <text x="332" y="720" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#1e3a8a">ProviderRequest</text>
+  <path d="M 412 714 L 442 714" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <rect x="444" y="696" width="120" height="36" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="504" y="720" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f172a">Adapter</text>
+  <path d="M 564 714 L 594 714" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <rect x="596" y="696" width="100" height="36" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="646" y="720" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#0f172a">厂商 API</text>
+  <path d="M 696 714 L 726 714" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <rect x="728" y="696" width="140" height="36" rx="8" fill="#dcfce7" stroke="#86efac"/>
+  <text x="798" y="720" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#14532d">ProviderEvent</text>
+  <path d="M 868 714 L 898 714" fill="none" stroke="#64748b" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <rect x="900" y="696" width="120" height="36" rx="8" fill="#ffedd5" stroke="#fdba74"/>
+  <text x="960" y="720" text-anchor="middle" font-family="Consolas, monospace" font-size="11" fill="#9a3412">Item[] 回写</text>
+
+  <!-- 周边 -->
+  <text x="550" y="784" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="700" fill="#334155">周边类型 · 多在 ProviderCommon.h</text>
+
+  <rect x="48" y="804" width="190" height="70" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="143" y="832" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#0f172a">ToolSpecification</text>
+  <text x="143" y="854" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">name · schema</text>
+
+  <rect x="254" y="804" width="190" height="70" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="349" y="832" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#0f172a">ModelCapabilities</text>
+  <text x="349" y="854" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">文/图/音 · 工具 · 续跑</text>
+
+  <rect x="460" y="804" width="190" height="70" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="555" y="832" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#0f172a">Transport*</text>
+  <text x="555" y="854" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">HTTP body / SSE payload</text>
+
+  <rect x="666" y="804" width="190" height="70" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="761" y="832" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#0f172a">ProviderUsage</text>
+  <text x="761" y="854" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">token 统计</text>
+
+  <rect x="872" y="804" width="180" height="70" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="962" y="832" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="600" fill="#0f172a">TurnState</text>
+  <text x="962" y="854" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10" fill="#64748b">adapter 解析瞬态</text>
+
+  <!-- 底部 -->
+  <text x="550" y="920" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12" fill="#475569">
+    <tspan font-weight="700" fill="#1d4ed8">蓝</tspan> 入站请求
+    <tspan font-weight="700" fill="#c2410c">  ·  橙</tspan> 终态 Item
+    <tspan font-weight="700" fill="#15803d">  ·  绿</tspan> 流式事件
+  </text>
+  <text x="550" y="944" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#94a3b8">思考：Request.reasoning.effort · 语音：Request.audio · 多模态 Part = Text|Image|Audio</text>
+  <text x="550" y="964" text-anchor="middle" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="11" fill="#94a3b8">工具域见 ToolTypes + tool-types-architecture.svg · 实现层 Adapter/Ledger 尚未画出</text>
+</svg>
