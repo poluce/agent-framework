@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/system_prompts">
+        <file alias="base.md">system_prompts/base.md</file>
+        <file alias="normal.md">system_prompts/normal.md</file>
+        <file alias="plan.md">system_prompts/plan.md</file>
+        <file alias="debug.md">system_prompts/debug.md</file>
+        <file alias="role_leader.md">system_prompts/role_leader.md</file>
+        <file alias="role_member.md">system_prompts/role_member.md</file>
+        <file alias="compact.md">system_prompts/compact.md</file>
+        <file alias="summary.md">system_prompts/summary.md</file>
+    </qresource>
+</RCC>
