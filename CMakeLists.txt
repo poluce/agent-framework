@@ -1,6 +1,6 @@
-# AgentFramework：最小执行单元内核（模拟独立仓库根）。
-# 单独：cmake -S framework -B build-fw
-# 本产品：根 CMake add_subdirectory(framework)
+# AgentFramework：最小执行单元内核。目标见 AGENTS.md。
+# 独立：cmake -S . -B build
+# 产品仓：add_subdirectory(third_party/framework)
 
 cmake_minimum_required(VERSION 3.21)
 
