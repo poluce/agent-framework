@@ -37,16 +37,37 @@ gh issue view <number> --repo <owner>/<repo> --json number,title,body,labels,com
 ```
 
 - 逐个判断 issue 属于**内核仓**还是**产品仓**
-- 内核仓能修的 → 本次修；产品仓才能修的 → 记录为「后续跟进」，不假装修复
+- 内核仓能修的 → 候选；产品仓才能修的 → 记录为「后续跟进」，不假装修复
 
-### 2. 修复
+### 2. 与用户对齐（必须，不可跳过）
+
+**拿到 issue 后不要直接动手改。** 先向用户汇报并确认：
+
+- 这个 issue 是不是**真问题**（有的 issue 是误解、误报、或已经不存在）
+- 这个方向是不是**本项目/内核的方向**（有的需求违背内核哲学，应放到上层配方/产品仓）
+- 修复范围：本次修哪些、哪些保留 OPEN
+- 方案选择：如果有多种修法，先给选项让用户拍板
+
+输出格式建议：
+
+```text
+共 N 个 issue：
+- #1 ... → 建议修（理由）
+- #2 ... → 建议不修（理由：不是问题 / 方向不符 / 产品仓跟进）
+- #3 ... → 需要你确认方案（选项 A / B）
+请确认后我再动手。
+```
+
+**用户确认前，不进入修复步骤。**
+
+### 3. 修复
 
 - 按 issue 描述定位代码，先读相关头文件/实现，再动手
 - 保持内核「最小执行单元、不预置模式」的哲学：能放在配方/上层的不塞进内核
 - 涉及公开 API 变更时，同步更新注释和文档
 - 涉及 `SessionRuntime` 字段时，必须同步 `src/shared/config/SessionRuntime.fields.h` 和 `tests/SessionRuntimeFieldsTests.cpp`
 
-### 3. 测试
+### 4. 测试
 
 ```bash
 cmake -S . -B build -G Ninja
@@ -58,7 +79,7 @@ ctest --test-dir build --output-on-failure
 - 全部测试通过后才能进入发布步骤
 - 如果环境没有工具链，明确告知用户，不能跳过测试直接发版
 
-### 4. 更新版本与 CHANGELOG
+### 5. 更新版本与 CHANGELOG
 
 - 按 SemVer 决定版本号：
   - 破坏性变更 / 大功能 → minor（0.1.0 → 0.2.0）
@@ -77,7 +98,7 @@ ctest --test-dir build --output-on-failure
 - 同步版本号到 `CMakeLists.txt`、`README.md`、`AGENTS.md`、`examples/*/CMakeLists.txt`、`tests/check_framework_install.cmake` 等硬编码位置
 - 用 `grep -rn "旧版本号"` 检查是否漏改
 
-### 5. 提交
+### 6. 提交
 
 ```bash
 git add -A
@@ -87,14 +108,14 @@ git commit -m "feat: 修复 #N ... 并发布 x.y.z"
 - 提交信息里带上 issue 编号
 - 提交前确认没有临时文件（如 `.release-notes-*.md`）
 
-### 6. 打 tag 并推送
+### 7. 打 tag 并推送
 
 ```bash
 git tag -a v<x.y.z> -m "AgentFramework <x.y.z>"
 git push origin main --tags
 ```
 
-### 7. 创建 GitHub Release
+### 8. 创建 GitHub Release
 
 ```bash
 gh release create v<x.y.z> \
@@ -108,7 +129,7 @@ gh release create v<x.y.z> \
 - 关联 issue 编号（`#1` `#8` 等），让使用者能追溯
 - 临时 notes 文件用后删除
 
-### 8. 关闭已修复的 issue
+### 9. 关闭已修复的 issue
 
 ```bash
 gh issue close <number> --repo <owner>/<repo> \
@@ -122,6 +143,7 @@ gh issue close <number> --repo <owner>/<repo> \
 ## 自检清单
 
 - [ ] 所有 issue 已分类（内核仓 / 产品仓）
+- [ ] **已与用户对齐**：确认哪些是真问题、哪些方向符合项目、修哪些、方案已拍板
 - [ ] 代码改动有对应测试
 - [ ] `ctest` 全部通过
 - [ ] 版本号所有硬编码位置已同步
@@ -133,6 +155,7 @@ gh issue close <number> --repo <owner>/<repo> \
 
 ## 不要做
 
+- **不要拿到 issue 就直接改**——先和用户对齐，有的 issue 不是问题，有的方向不是本项目方向
 - 不要没跑测试就发版
 - 不要关闭实际上没修复的 issue
 - 不要把产品仓的 issue 关在内核仓里（除非内核仓确实修了）
