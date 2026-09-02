@@ -5,8 +5,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QSet>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QtConcurrent>
@@ -31,50 +35,70 @@ QString toolVersion(const QString &program, const QStringList &args)
 }
 
 struct ToolEntry {
-    const char *name;
-    const char *exe;
+    QString name;
+    QString exe;
     QStringList args;     // 版本参数
     QStringList winFallbackArgs; // Windows 下备用参数
 };
 
-// 常见工具列表（按类别分组）
-static const ToolEntry kCommonTools[] = {
-    // VCS
-    {"git",           "git",           {"--version"}, {}},
+// 配置文件目录：内置 qrc 优先，外部应用目录 config/ 追加（同名 exe 不覆盖内置）。
+QStringList toolConfigDirectories()
+{
+    QStringList dirs;
+    dirs << QStringLiteral(":/config");
+    const QString appDir = QCoreApplication::applicationDirPath();
+    if (!appDir.isEmpty()) {
+        dirs << QDir(appDir).filePath(QStringLiteral("config"));
+    }
+    return dirs;
+}
 
-    // 构建
-    {"cmake",         "cmake",         {"--version"}, {}},
-    {"ninja",         "ninja",         {"--version"}, {}},
-    {"make",          "make",          {"--version"}, {}},
-
-    // 编译器
-    {"g++",           "g++",           {"--version"}, {}},
-    {"gcc",           "gcc",           {"--version"}, {}},
-    {"clang",         "clang",         {"--version"}, {}},
-
-    // 运行时
-    {"node",          "node",          {"--version"}, {}},
-    {"python3",       "python3",       {"--version"}, {}},
-    {"python",        "python",        {"--version"}, {}},
-    {"java",          "java",          {"--version"}, {}},
-    {"go",            "go",            {"version"},   {}},
-    {"rustc",         "rustc",         {"--version"}, {}},
-
-    // 包管理
-    {"npm",           "npm",           {"--version"}, {}},
-    {"pip",           "pip",           {"--version"}, {}},
-    {"cargo",         "cargo",         {"--version"}, {}},
-
-    // 容器
-    {"docker",        "docker",        {"--version"}, {}},
-};
+// 从 common_tools.json 加载工具清单；内置 qrc 为基底，外部文件只追加新工具。
+QList<ToolEntry> loadCommonTools()
+{
+    QList<ToolEntry> tools;
+    QSet<QString> seenExes;
+    for (const QString &dirPath : toolConfigDirectories()) {
+        QFile file(QDir(dirPath).filePath(QStringLiteral("common_tools.json")));
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            continue;
+        }
+        QJsonParseError err{};
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            continue;
+        }
+        const QJsonArray arr = doc.object().value(QStringLiteral("tools")).toArray();
+        for (const QJsonValue &value : arr) {
+            const QJsonObject obj = value.toObject();
+            ToolEntry entry;
+            entry.name = obj.value(QStringLiteral("name")).toString().trimmed();
+            entry.exe = obj.value(QStringLiteral("exe")).toString().trimmed();
+            const QJsonArray args = obj.value(QStringLiteral("args")).toArray();
+            for (const QJsonValue &arg : args) {
+                entry.args << arg.toString();
+            }
+            const QJsonArray fallbackArgs = obj.value(QStringLiteral("winFallbackArgs")).toArray();
+            for (const QJsonValue &arg : fallbackArgs) {
+                entry.winFallbackArgs << arg.toString();
+            }
+            if (entry.name.isEmpty() || entry.exe.isEmpty() || seenExes.contains(entry.exe)) {
+                continue;
+            }
+            seenExes.insert(entry.exe);
+            tools << entry;
+        }
+    }
+    return tools;
+}
 
 // 运行时检测可用工具
 QString detectTools()
 {
     QStringList available;
-    for (const auto &entry : kCommonTools) {
-        const QString exe = QString::fromUtf8(entry.exe);
+    const QList<ToolEntry> tools = loadCommonTools();
+    for (const ToolEntry &entry : tools) {
+        const QString exe = entry.exe;
         if (QStandardPaths::findExecutable(exe).isEmpty())
             continue;
         QString ver = toolVersion(exe, entry.args);
@@ -82,9 +106,9 @@ QString detectTools()
             ver = toolVersion(exe, entry.winFallbackArgs);
         if (!ver.isEmpty())
             available << (ver.toLower().contains(entry.name)
-                ? ver : QString::fromUtf8(entry.name) + QStringLiteral(" (") + ver + QStringLiteral(")"));
+                ? ver : entry.name + QStringLiteral(" (") + ver + QStringLiteral(")"));
         else
-            available << QString::fromUtf8(entry.name);
+            available << entry.name;
     }
     return available.join(QStringLiteral(", "));
 }

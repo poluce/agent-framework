@@ -97,7 +97,9 @@ if(EXISTS "${AGENT_FRAMEWORK_ROOT}/pch.h")
 endif()
 target_link_libraries(agent_runtime
     PUBLIC agent_shared Qt6::Core Qt6::Network Qt6::Concurrent)
-target_sources(agent_runtime PRIVATE "${AGENT_FRAMEWORK_ROOT}/resources/system_prompts.qrc")
+target_sources(agent_runtime PRIVATE
+    "${AGENT_FRAMEWORK_ROOT}/resources/system_prompts.qrc"
+    "${AGENT_FRAMEWORK_ROOT}/resources/config.qrc")
 
 # 伞头 quoted include 闭包；增头须同步本表与 tests/check_framework_install.cmake
 set(AGENT_FRAMEWORK_PUBLIC_HEADERS

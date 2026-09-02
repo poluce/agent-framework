@@ -1,0 +1,21 @@
+{
+  "tools": [
+    { "name": "git",    "exe": "git",    "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "cmake",  "exe": "cmake",  "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "ninja",  "exe": "ninja",  "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "make",   "exe": "make",   "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "g++",    "exe": "g++",    "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "gcc",    "exe": "gcc",    "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "clang",  "exe": "clang",  "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "node",   "exe": "node",   "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "python3","exe": "python3","args": ["--version"], "winFallbackArgs": [] },
+    { "name": "python", "exe": "python", "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "java",   "exe": "java",   "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "go",     "exe": "go",     "args": ["version"],   "winFallbackArgs": [] },
+    { "name": "rustc",  "exe": "rustc",  "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "npm",    "exe": "npm",    "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "pip",    "exe": "pip",    "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "cargo",  "exe": "cargo",  "args": ["--version"], "winFallbackArgs": [] },
+    { "name": "docker", "exe": "docker", "args": ["--version"], "winFallbackArgs": [] }
+  ]
+}
