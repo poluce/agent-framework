@@ -1,6 +1,6 @@
 # Changelog
 
-本仓库所有值得使用者关注的变更都记录在此。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
 ## [0.2.0] - 2026-09-02
 

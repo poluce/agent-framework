@@ -15,59 +15,57 @@
 
 ```cpp
 /**
- * @brief 管理热分析曲线
+ * @brief 管理会话内的执行单元表
  *
- * 负责曲线的添加、删除、查找和激活状态管理。
+ * 负责单元的登记、查找、生命周期和主单元回落。
  */
-class CurveManager
+class AgentSession
 {
 public:
     /**
-     * @brief 根据曲线 ID 查找曲线
-     * @param curveId 曲线唯一标识
-     * @return 找到时返回曲线指针，否则返回 nullptr
+     * @brief 按 agentId 查找执行单元
+     * @param agentId 会话内唯一标识
+     * @return 找到时返回单元指针，否则返回 nullptr
      */
-    ThermalCurve* findCurve(const QString& curveId);
+    Agent *findById(const QString &agentId);
 };
 ```
 
 ### 枚举和成员变量
 
 ```cpp
-enum class InstrumentType
+enum class AgentStatus
 {
-    TGA,  ///< 热重分析
-    DSC,  ///< 差示扫描量热
-    ARC   ///< 加速量热
+    Idle,      ///< 空闲，可接收新任务
+    Running,   ///< 正在执行一轮
+    Completed, ///< 本轮成功收口
+    Failed     ///< 本轮失败
 };
 
-QString m_activeCurveId;  ///< 当前激活曲线的唯一标识
+QString m_selectedAgentId;  ///< 会话内当前选中单元的 id
 ```
 
 ### 简短接口
 
 ```cpp
-/// 返回当前激活曲线。
-ThermalCurve* activeCurve() const;
+/// 返回当前主单元；无主单元时返回 nullptr。
+Agent *primaryUnit() const;
 ```
 
 ### 完整示例
 
 ```cpp
 /**
- * @brief 执行移动平均滤波
+ * @brief 向收件箱投递一条消息
  *
- * @param input 输入曲线
- * @param windowSize 平滑窗口大小
- * @return 处理后的曲线
+ * @param msg 待投递的邮箱消息
+ * @return 入队成功返回 true；容量/大小超限时返回 false 并发出 Dropped 事件
  *
- * @pre windowSize 必须大于 0
- * @note 偶数窗口会自动调整为奇数
- * @warning 该函数可能复制大量曲线数据
+ * @pre msg.id 非空
+ * @note 投递后由编排负责 take → ack/requeue
+ * @warning 超限消息不会进入队列，调用方需处理拒绝结果
  */
-ThermalCurve smooth(
-    const ThermalCurve& input,
-    int windowSize);
+bool enqueueInboxMessage(const AgentInboxMessage &msg);
 ```
 
 ## 常用 Doxygen 标签
