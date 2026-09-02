@@ -89,10 +89,10 @@ ctest --test-dir build --output-on-failure
 ```markdown
 ## [x.y.z] - YYYY-MM-DD
 
-### 🚨 Breaking Changes（升级前必看）
-### ✨ 新增功能
-### 🔧 功能修改
-### 🐛 修复
+### 🔴 Breaking Changes（升级前必看）
+### 🟢 新增功能
+### 🟡 功能修改
+### 🔵 修复
 ```
 
 - 同步版本号到 `CMakeLists.txt`、`README.md`、`AGENTS.md`、`examples/*/CMakeLists.txt`、`tests/check_framework_install.cmake` 等硬编码位置
