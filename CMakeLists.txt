@@ -19,7 +19,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_EXTENSIONS OFF)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
-    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Concurrent)
     option(AGENT_FRAMEWORK_BUILD_TESTS "Build framework-only tests" ON)
 else()
     set(AGENT_FRAMEWORK_STANDALONE OFF)
@@ -96,7 +96,7 @@ if(EXISTS "${AGENT_FRAMEWORK_ROOT}/pch.h")
     target_precompile_headers(agent_runtime PRIVATE "${AGENT_FRAMEWORK_ROOT}/pch.h")
 endif()
 target_link_libraries(agent_runtime
-    PUBLIC agent_shared Qt6::Core Qt6::Network)
+    PUBLIC agent_shared Qt6::Core Qt6::Network Qt6::Concurrent)
 target_sources(agent_runtime PRIVATE "${AGENT_FRAMEWORK_ROOT}/resources/system_prompts.qrc")
 
 # 伞头 quoted include 闭包；增头须同步本表与 tests/check_framework_install.cmake

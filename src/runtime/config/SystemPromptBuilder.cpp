@@ -4,10 +4,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include <QtConcurrent>
 
 namespace {
 
@@ -149,14 +151,19 @@ QStringList promptTemplateDirectories()
 
 QString loadPromptTemplate(const QString &fileName)
 {
+    // 内置 qrc 在前作为基底，外部 system_prompts 目录同名文件只追加、不覆盖。
+    QStringList parts;
     for (const QString &dirPath : promptTemplateDirectories()) {
         QFile file(QDir(dirPath).filePath(fileName));
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             continue;
         }
-        return QString::fromUtf8(file.readAll()).trimmed();
+        const QString content = QString::fromUtf8(file.readAll()).trimmed();
+        if (!content.isEmpty()) {
+            parts << content;
+        }
     }
-    return {};
+    return parts.join(QStringLiteral("\n\n"));
 }
 
 QString applyRolePlaceholders(QString text, const AgentPromptContext &ctx)
@@ -204,15 +211,22 @@ SystemPromptBuilder::SystemPromptBuilder(PromptPaths paths, QObject *parent)
     : QObject(parent)
     , m_paths(std::move(paths))
 {
+    m_envWatcher = new QFutureWatcher<QString>(this);
+    connect(m_envWatcher, &QFutureWatcher<QString>::finished, this, [this]() {
+        m_cachedEnvBlock = m_envWatcher->result();
+        emit environmentReady();
+    });
 }
 
 void SystemPromptBuilder::prepare()
 {
     m_baseBehavior = loadBaseBehavior();
     m_userCustomPrompt = loadUserPromptFile();
-    // 环境块（Shell、工具等）一次性检测并缓存，不依赖稳定缓存标记
-    m_cachedEnvBlock = assembleEnvBlock();
     invalidateStableCache();
+    // 环境块异步检测（QtConcurrent），完成后发 environmentReady()，不阻塞主线程。
+    if (!m_envWatcher->isRunning()) {
+        m_envWatcher->setFuture(QtConcurrent::run(&SystemPromptBuilder::assembleEnvBlock));
+    }
 }
 
 // ── 数据源 setter ──
@@ -308,7 +322,7 @@ QString SystemPromptBuilder::assembleBaseBlock(const QString &modePromptFile) co
     return blocks.join(QStringLiteral("\n\n"));
 }
 
-QString SystemPromptBuilder::assembleEnvBlock() const
+QString SystemPromptBuilder::assembleEnvBlock()
 {
     QStringList lines;
     lines << QStringLiteral("<env>");

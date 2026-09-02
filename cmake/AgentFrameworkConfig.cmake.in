@@ -3,7 +3,7 @@
 set(AgentFramework_VERSION "@AGENT_FRAMEWORK_VERSION@")
 
 include(CMakeFindDependencyMacro)
-find_dependency(Qt6 COMPONENTS Core Network)
+find_dependency(Qt6 COMPONENTS Core Network Concurrent)
 
 include("${CMAKE_CURRENT_LIST_DIR}/AgentFrameworkTargets.cmake")
 check_required_components(AgentFramework)

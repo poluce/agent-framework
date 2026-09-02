@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 
+template<typename T> class QFutureWatcher;
+
 struct AgentPromptContext
 {
     QString agentId;
@@ -58,13 +60,17 @@ public:
     QString loadPromptFile() const;
     bool savePromptFile(const QString &content);
 
+signals:
+    /// 异步环境检测完成（仅当 prepare() 启动异步检测后发出）。
+    void environmentReady();
+
 private:
     void invalidateStableCache() const;
     [[nodiscard]] QString loadBaseBehavior() const;
     [[nodiscard]] QString loadUserPromptFile() const;
 
     [[nodiscard]] QString assembleBaseBlock(const QString &modePromptFile) const;
-    [[nodiscard]] QString assembleEnvBlock() const;
+    [[nodiscard]] static QString assembleEnvBlock();
     [[nodiscard]] QString assembleUserBlock() const;
     [[nodiscard]] QString assembleRoleBlock(const AgentPromptContext &ctx) const;
     [[nodiscard]] QString loadNamedPromptTemplate(const QString &fileName) const;
@@ -79,4 +85,6 @@ private:
     mutable QString m_cachedEnvBlock;
     mutable QString m_cachedUserBlock;
     mutable bool m_stableCacheValid = false;
+    // 异步环境检测
+    QFutureWatcher<QString> *m_envWatcher = nullptr;
 };

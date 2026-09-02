@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.2.0**。只依赖 Qt 6 Core + Network。
+本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.2.0**。只依赖 Qt 6 Core + Network + Concurrent。
 
 不是 GUI/TUI 手册，也不是 Host 协议。宿主怎么把本内核嵌进桌面应用，见上层产品仓的 `docs/agent-framework.md`。
 
@@ -59,7 +59,7 @@ find_package(AgentFramework 0.2 REQUIRED)
 target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 ```
 
-头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表）。不装传输层（`HttpSseChannel`）、厂商适配器、内置工具实现。需要 Qt 6 Core + Network。
+头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表）。不装传输层（`HttpSseChannel`）、厂商适配器、内置工具实现。需要 Qt 6 Core + Network + Concurrent。
 
 `find_package(AgentFramework 0.2)`；0.x 按 SameMinorVersion（0.2 不匹配 0.3）。in-tree `agent_framework` 与安装包同一份头闭包。
 
