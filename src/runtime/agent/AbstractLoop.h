@@ -327,6 +327,8 @@ private:
     QString m_lastError;
 
     std::optional<SessionRuntime> m_activeConfig;
+    /// 构建当前系统提示词时使用的默认终端；用于检测运行中默认终端切换。
+    QString m_systemPromptDefaultShell;
     std::optional<SessionRuntime> m_pendingConfig;
     ProviderFactory m_providerFactory;
     ModePolicyFactory m_modePolicyFactory;

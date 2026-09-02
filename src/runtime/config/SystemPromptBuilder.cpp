@@ -275,8 +275,25 @@ QString SystemPromptBuilder::buildPrompt(const AgentPromptContext &ctx) const
         m_stableCacheValid = true;
     }
 
+    // 环境块：静态检测内容 + 动态 DefaultShell（反映构建时刻的默认终端，不随运行中切换变化）。
+    QString envBlock = m_cachedEnvBlock;
+    const QString defaultShell = ctx.defaultShell.trimmed().isEmpty()
+        ? QStringLiteral("bash")
+        : ctx.defaultShell.trimmed();
+    if (envBlock.isEmpty()) {
+        envBlock = QStringLiteral("<env>\nDefaultShell: %1\n</env>").arg(defaultShell);
+    } else {
+        const QString closing = QStringLiteral("</env>");
+        const int idx = envBlock.lastIndexOf(closing);
+        if (idx >= 0) {
+            envBlock.insert(idx, QStringLiteral("DefaultShell: %1\n").arg(defaultShell));
+        } else {
+            envBlock += QStringLiteral("\nDefaultShell: %1").arg(defaultShell);
+        }
+    }
+
     QStringList parts;
-    parts << assembleBaseBlock(ctx.modePromptFile) << m_cachedEnvBlock;
+    parts << assembleBaseBlock(ctx.modePromptFile) << envBlock;
 
     // Skill 列表（动态更新，不参与稳定缓存）
     if (!m_availableSkills.isEmpty())
@@ -343,7 +360,6 @@ QString SystemPromptBuilder::assembleEnvBlock()
 
     // 可用 Shell
     lines << QStringLiteral("Shells: %1").arg(detectShells());
-    lines << QStringLiteral("DefaultShell: PowerShell (use CMD syntax on cmd -- e.g., NUL not /dev/null, backslashes in paths)");
 
     // 可用工具
     lines << QStringLiteral("Tools: %1").arg(detectTools());
@@ -353,14 +369,12 @@ QString SystemPromptBuilder::assembleEnvBlock()
     lines << QStringLiteral("Arch: %1").arg(QSysInfo::currentCpuArchitecture());
     lines << QStringLiteral("User: %1").arg(QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"), "?"));
     lines << QStringLiteral("Shells: bash, zsh");
-    lines << QStringLiteral("DefaultShell: bash");
 
 #else
     lines << QStringLiteral("OS: Linux %1, kernel %2").arg(QSysInfo::productVersion(), QSysInfo::kernelVersion());
     lines << QStringLiteral("Arch: %1").arg(QSysInfo::currentCpuArchitecture());
     lines << QStringLiteral("User: %1").arg(QProcessEnvironment::systemEnvironment().value(QStringLiteral("USER"), "?"));
     lines << QStringLiteral("Shells: bash");
-    lines << QStringLiteral("DefaultShell: bash");
 #endif
 
     lines << QStringLiteral("</env>");

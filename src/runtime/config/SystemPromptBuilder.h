@@ -15,6 +15,8 @@ struct AgentPromptContext
     /// 模式覆盖模板文件名（如 plan.md）。空 = 不拼模式块。由模式策略填写。
     QString modePromptFile;
     QString workspacePath;
+    /// 当前执行默认终端（pwsh / powershell / bash），由运行时配置填充。
+    QString defaultShell;
 };
 
 class SystemPromptBuilder : public QObject

@@ -380,6 +380,7 @@ AgentPromptContext AbstractLoop::buildPromptContext(const SessionRuntime &config
     ctx.displayName = m_displayName;
     ctx.parentAgentId = m_parentAgentId;
     ctx.workspacePath = config.workingDirectory;
+    ctx.defaultShell = config.defaultShell;
     if (m_coordinator) {
         if (AgentSession *session = m_coordinator->session()) {
             if (AbstractOrchestration *orch = session->orchestration()) {
@@ -392,13 +393,19 @@ AgentPromptContext AbstractLoop::buildPromptContext(const SessionRuntime &config
 
 void AbstractLoop::applyRuntimeConfig(const SessionRuntime &config)
 {
+    const bool shellChanged = !m_systemPromptDefaultShell.isEmpty()
+        && m_systemPromptDefaultShell != config.defaultShell;
     m_builtinRuntime.setDefaultShell(config.defaultShell);
     if (m_activeConfig) {
         m_activeConfig = config;
     }
 
     refreshModePolicyIfNeeded(config);
-    setSystemPrompt(assembleSystemPrompt(config));
+    if (!shellChanged) {
+        setSystemPrompt(assembleSystemPrompt(config));
+        m_systemPromptDefaultShell = config.defaultShell;
+    }
+    // shellChanged 时：不修改已有系统提示词；切换通知由下一次 Provider 启动时作为隐藏消息注入。
 }
 
 QString AbstractLoop::assembleSystemPrompt(const SessionRuntime &config)
@@ -2076,8 +2083,19 @@ void AbstractLoop::applyProviderSettings()
     };
     m_provider->setAuth(auth);
 
+    const QString currentShell = m_activeConfig->defaultShell;
+    const bool shellChanged = !m_systemPromptDefaultShell.isEmpty()
+        && m_systemPromptDefaultShell != currentShell;
     refreshModePolicyIfNeeded(*m_activeConfig);
-    setSystemPrompt(assembleSystemPrompt(*m_activeConfig));
+    if (shellChanged) {
+        // 对话中切换默认终端：不修改系统提示词，改为在本次 Turn 注入隐藏系统消息。
+        appendHiddenSystemMessage(
+            QStringLiteral("用户已将默认终端切换为 %1，后续命令请使用该终端的语法。")
+                .arg(currentShell));
+    } else {
+        setSystemPrompt(assembleSystemPrompt(*m_activeConfig));
+    }
+    m_systemPromptDefaultShell = currentShell;
 }
 
 

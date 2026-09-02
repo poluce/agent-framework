@@ -261,7 +261,11 @@ QString Agent::defaultShell() const
 void Agent::setDefaultShell(const QString &shell)
 {
     const QString normalized = shell.trimmed().toLower();
-    m_runtime.defaultShell = (normalized == QStringLiteral("powershell")) ? QStringLiteral("powershell") : QStringLiteral("bash");
+    if (normalized == QStringLiteral("pwsh") || normalized == QStringLiteral("powershell")) {
+        m_runtime.defaultShell = normalized;
+    } else {
+        m_runtime.defaultShell = QStringLiteral("bash");
+    }
 }
 
 // ── 状态查询 ──
