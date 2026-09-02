@@ -8,7 +8,9 @@
 #include "agent/compact/SummaryJobQueue.h"
 #include "agent/compact/SummaryStore.h"
 #include "SessionRuntime.h"
+#include "ir/CoreEvent.h"
 #include <QDateTime>
+#include <QJsonObject>
 #include <QObject>
 
 #include <functional>
@@ -21,9 +23,20 @@ struct AgentInboxMessage
     QString fromAgentId;
     QString fromDisplayName;
     QString content;
+    /// 编排层语义：指向哪条消息由配方解释，内核不校验。
     QString replyTo;
     QDateTime timestamp;
+    /// 消息模型版本；扩展字段时递增。
+    int schemaVersion = 1;
+    /// 结构化消息类型（task / status / file_ref / ...），由编排自定义。
+    QString type;
+    /// 结构化载荷；content 保留为人类可读兜底。
+    QJsonObject payload;
+    core_ir::InboxPriority priority = core_ir::InboxPriority::Normal;
+    /// 内核内部状态：已确认送达（ack 后消息即从列表移除）。
     bool acked = false;
+    /// 内核内部状态：take 后、ack/requeue 前为 in-flight。
+    bool inFlight = false;
 };
 
 class AbstractOrchestration;
@@ -155,10 +168,22 @@ public:
     class AbstractLoop *loop() const;
 
     // ── 收件箱（单元邮箱；报文格式与何时注入账本由编排决定）──
-    void enqueueInboxMessage(const AgentInboxMessage &msg);
+    /// 入队一条消息。容量/大小超限时返回 false 并发出 Dropped 事件。
+    bool enqueueInboxMessage(const AgentInboxMessage &msg);
+    /// 是否存在待投递（Pending）消息；in-flight 不计入。
     bool hasPendingInboxMessages() const;
-    /// 取出未确认消息并标为已确认。编排负责编码并注入账本。
+    /**
+     * 取出待投递消息并标记为 in-flight（不 ack）。
+     * 按优先级降序、同优先级按时间升序返回。
+     * 编排在成功注入后调用 ackInboxMessages()，失败时调用 requeueInboxMessages()。
+     */
     QList<AgentInboxMessage> takePendingInboxMessages();
+    /// 确认送达：标记 acked 并从列表移除，逐个发出 Delivered 事件。
+    void ackInboxMessages(const QStringList &ids);
+    /// 投递失败回滚：in-flight 回到 pending，可再次 take。
+    void requeueInboxMessages(const QStringList &ids);
+    /// 清空邮箱（会话清理/析构）：剩余 pending/in-flight 逐个发出 Dropped 事件。
+    void clearInbox(const QString &reason);
 
     // ── 消息直接访问（替代旧 ConversationListModel::messages()）──
     QList<ConversationMessage> ledgerMessages() const;
@@ -169,6 +194,9 @@ public:
 
     /// 管理器 / dataChanged 等非 Loop 路径的协议状态出口（含完整 status）。
     void emitAgentStateProtocolEvent();
+    void emitInboxEnqueued(const AgentInboxMessage &msg);
+    void emitInboxDelivered(const AgentInboxMessage &msg);
+    void emitInboxDropped(const AgentInboxMessage &msg, const QString &reason);
 
 signals:
     void stateChanged();

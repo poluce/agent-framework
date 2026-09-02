@@ -80,25 +80,26 @@ public:
     void clear();
 
     // ── 输入 ──
-    void enqueueMessage(const QString &message, ConversationMessage::Kind kind,
+    /// 入队一条消息；trimmed 为空时返回 false。
+    bool enqueueMessage(const QString &message, ConversationMessage::Kind kind,
                         const QString &displaySummary = {},
                         UserDelivery delivery = UserDelivery::NextTurn);
-    void enqueueUserMessage(const QString &message,
+    bool enqueueUserMessage(const QString &message,
                             UserDelivery delivery = UserDelivery::NextTurn)
     {
-        enqueueMessage(message, ConversationMessage::Kind::UserText, {}, delivery);
+        return enqueueMessage(message, ConversationMessage::Kind::UserText, {}, delivery);
     }
-    void enqueueUserMessageWithFiles(const QString &message, const QStringList &filePaths,
+    bool enqueueUserMessageWithFiles(const QString &message, const QStringList &filePaths,
                                      UserDelivery delivery = UserDelivery::NextTurn);
-    void enqueueUserMessageWithSkill(const QString &message,
+    bool enqueueUserMessageWithSkill(const QString &message,
                                      const QStringList &filePaths,
                                      const QString &skillName,
                                      const QString &skillBody,
                                      UserDelivery delivery = UserDelivery::NextTurn);
-    void enqueueAgentTask(const QString &message, const QString &displaySummary = {})
+    bool enqueueAgentTask(const QString &message, const QString &displaySummary = {})
     {
-        enqueueMessage(message, ConversationMessage::Kind::AgentTask, displaySummary,
-                       UserDelivery::NextTurn);
+        return enqueueMessage(message, ConversationMessage::Kind::AgentTask, displaySummary,
+                              UserDelivery::NextTurn);
     }
     void appendExternalMessage(const ConversationMessage &message);
 

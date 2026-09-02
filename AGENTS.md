@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.1.0**。只依赖 Qt 6 Core + Network。
+本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.2.0**。只依赖 Qt 6 Core + Network。
 
 不是 GUI/TUI 手册，也不是 Host 协议。宿主怎么把本内核嵌进桌面应用，见上层产品仓的 `docs/agent-framework.md`。
 
@@ -55,13 +55,13 @@ cmake --install <build> --prefix <prefix> --component AgentFramework
 ```
 
 ```cmake
-find_package(AgentFramework 0.1 REQUIRED)
+find_package(AgentFramework 0.2 REQUIRED)
 target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 ```
 
 头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表）。不装传输层（`HttpSseChannel`）、厂商适配器、内置工具实现。需要 Qt 6 Core + Network。
 
-`find_package(AgentFramework 0.1)`；0.x 按 SameMinorVersion（0.1 不匹配 0.2）。in-tree `agent_framework` 与安装包同一份头闭包。
+`find_package(AgentFramework 0.2)`；0.x 按 SameMinorVersion（0.2 不匹配 0.3）。in-tree `agent_framework` 与安装包同一份头闭包。
 
 仓外最小宿主：`examples/minimal`（自写单单元配方 + 假 Provider，跑完一轮；不访问网络）。
 
@@ -77,7 +77,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 |------|------|------|
 | 身份 | `agentId` / `displayName` | 会话内唯一 id |
 | 可选树边 | `parentAgentId` / `setParentAgentId` | 口不规定必须成树；空=无父 |
-| 哑巴邮箱 | `enqueueInboxMessage` / `hasPendingInboxMessages` / `takePendingInboxMessages` | 只收信。报文格式由配方编码后再注入账本 |
+| 哑巴邮箱 | `enqueueInboxMessage` / `hasPendingInboxMessages` / `takePendingInboxMessages` / `ackInboxMessages` / `requeueInboxMessages` | 只收信。take 后需 ack/requeue；报文格式由配方编码后再注入账本 |
 | 开轮 | `submitUserDelivery` / `submitAgentTask` / `loop()->enqueueAgentTask` | 配方把任务喂给单元 |
 | 状态 | `status()` / `busy()` / `stateChanged` | 配方在 `onUnitStateChanged` 里看 |
 
@@ -174,7 +174,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 |----|------|
 | 运行时绑 Qt | `QObject` + Qt Network + 事件循环 |
 | 日志宏 | `LOGI` 走 `LogManager::instance()`。未 `init` / 未注入目录则不写文件 |
-| 执行配置字段 | **0.1 冻结**：`SessionRuntime`（模型/压缩/审批/段摘要…）。增删字段须改 `src/shared/config/SessionRuntime.fields.h` 并更新 `tests/SessionRuntimeFieldsTests.cpp` |
+| 执行配置字段 | **0.2 冻结**：`SessionRuntime`（模型/压缩/审批/段摘要/邮箱…）。增删字段须改 `src/shared/config/SessionRuntime.fields.h` 并更新 `tests/SessionRuntimeFieldsTests.cpp` |
 
 Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agents/skills/update-provider-protocol`。
 

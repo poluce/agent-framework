@@ -7,7 +7,7 @@
 #include <QtTest>
 
 /**
- * 0.1 执行配置表冻结：增删改字段须同步本名单与 SessionRuntime.fields.h。
+ * 0.2 执行配置表冻结：增删改字段须同步本名单与 SessionRuntime.fields.h。
  * 只链公开面，安装包路径也可跑。
  */
 class SessionRuntimeFieldsTests final : public QObject
@@ -34,6 +34,8 @@ const QStringList kFrozenFieldNames = {
     QStringLiteral("modelResponseTimeoutSecs"),
     QStringLiteral("maxRetries"),
     QStringLiteral("defaultShell"),
+    QStringLiteral("maxInboxMessages"),
+    QStringLiteral("maxInboxMessageSize"),
     QStringLiteral("compactEnabled"),
     QStringLiteral("compactTriggerTokens"),
     QStringLiteral("compactReserveTokens"),

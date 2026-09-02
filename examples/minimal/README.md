@@ -14,5 +14,5 @@ cmake --install <build> --prefix <prefix> --component AgentFramework
 cmake -S . -B build -DCMAKE_PREFIX_PATH="<prefix>;<qt-prefix>"
 cmake --build build
 ./build/agent_framework_minimal
-# find_package(AgentFramework 0.1)
+# find_package(AgentFramework 0.2)
 ```

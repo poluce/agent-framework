@@ -561,35 +561,38 @@ void AbstractLoop::enqueuePending(PendingMessage item, UserDelivery delivery)
     notifyStateChanged();
 }
 
-void AbstractLoop::enqueueMessage(const QString &message, ConversationMessage::Kind kind,
+bool AbstractLoop::enqueueMessage(const QString &message, ConversationMessage::Kind kind,
                                   const QString &displaySummary,
                                   UserDelivery delivery)
 {
     const QString trimmed = message.trimmed();
     if (trimmed.isEmpty()) {
-        return;
+        return false;
     }
     enqueuePending({trimmed, kind, {}, {}, {}, displaySummary}, delivery);
+    return true;
 }
 
-void AbstractLoop::enqueueUserMessageWithFiles(const QString &message, const QStringList &filePaths,
+bool AbstractLoop::enqueueUserMessageWithFiles(const QString &message, const QStringList &filePaths,
                                                UserDelivery delivery)
 {
     const QString trimmed = message.trimmed();
-    if (trimmed.isEmpty() && filePaths.isEmpty()) return;
+    if (trimmed.isEmpty() && filePaths.isEmpty()) return false;
     enqueuePending({trimmed, ConversationMessage::Kind::UserText, filePaths, {}, {}, {}}, delivery);
+    return true;
 }
 
-void AbstractLoop::enqueueUserMessageWithSkill(const QString &message,
+bool AbstractLoop::enqueueUserMessageWithSkill(const QString &message,
                                                const QStringList &filePaths,
                                                const QString &skillName,
                                                const QString &skillBody,
                                                UserDelivery delivery)
 {
     const QString trimmed = message.trimmed();
-    if (trimmed.isEmpty() && filePaths.isEmpty()) return;
+    if (trimmed.isEmpty() && filePaths.isEmpty()) return false;
     enqueuePending({trimmed, ConversationMessage::Kind::UserText, filePaths,
                     skillName, skillBody.trimmed(), {}}, delivery);
+    return true;
 }
 
 int AbstractLoop::pendingNextTurnCount() const

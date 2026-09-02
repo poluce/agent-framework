@@ -36,6 +36,12 @@ GD_FIELD(int,     modelResponseTimeoutSecs, 300)
 GD_FIELD(int,     maxRetries,              5)
 GD_FIELD(QString, defaultShell,            QStringLiteral("powershell"))
 
+// ── 邮箱 ──
+/// 收件箱最大未确认消息数（pending+in-flight）；0 = 不限
+GD_FIELD(int,     maxInboxMessages,        0)
+/// 单条收件箱消息 content 最大字符数；0 = 不限
+GD_FIELD(int,     maxInboxMessageSize,     0)
+
 // ── 压缩 ──
 GD_FIELD(bool,    compactEnabled,              true)
 /// 统一触发上限（token）；与 contextWindow 取 min 后再减预留。<=0 表示不设统一上限。

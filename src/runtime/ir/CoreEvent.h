@@ -143,6 +143,25 @@ enum class TeamMemberChange {
     return agentStatusKey(status);
 }
 
+/// 邮箱消息优先级（内核只负责排序/携带，调度策略由编排决定）。
+enum class InboxPriority {
+    Low,
+    Normal,
+    High,
+    Urgent
+};
+
+[[nodiscard]] inline QString inboxPriorityKey(const InboxPriority priority)
+{
+    switch (priority) {
+    case InboxPriority::Low: return QStringLiteral("low");
+    case InboxPriority::Normal: return QStringLiteral("normal");
+    case InboxPriority::High: return QStringLiteral("high");
+    case InboxPriority::Urgent: return QStringLiteral("urgent");
+    }
+    return QStringLiteral("normal");
+}
+
 struct PendingQuestion {
     QString questionId;
     QString question;
@@ -321,6 +340,28 @@ struct EventTeamMemberStatusChanged {
     TeamMemberChange change = TeamMemberChange::Status;
     AgentStatus agentStatus = AgentStatus::Idle;
     QString displayName;
+};
+
+// ── 邮箱 ──
+
+struct EventInboxMessageEnqueued {
+    QString messageId;
+    AgentId fromAgentId;
+    AgentId targetAgentId;
+    InboxPriority priority = InboxPriority::Normal;
+};
+
+struct EventInboxMessageDelivered {
+    QString messageId;
+    AgentId fromAgentId;
+    AgentId targetAgentId;
+};
+
+struct EventInboxMessageDropped {
+    QString messageId;
+    AgentId fromAgentId;
+    AgentId targetAgentId;
+    QString reason;
 };
 
 // ── 会话 ──
@@ -512,6 +553,9 @@ using Event = std::variant<
     EventTurnStarted,
     EventTurnComplete,
     EventTeamMemberStatusChanged,
+    EventInboxMessageEnqueued,
+    EventInboxMessageDelivered,
+    EventInboxMessageDropped,
     EventSessionEvent,
     EventConfigChanged,
     EventTokenCount,

@@ -13,6 +13,9 @@
 #include <QDir>
 #include <QUuid>
 
+#include <algorithm>
+#include <utility>
+
 Agent::Agent(const QString &agentId,
              const QString &displayName,
              const SessionRuntime &runtime,
@@ -92,6 +95,7 @@ Agent::Agent(const QString &agentId,
 Agent::~Agent()
 {
     clearSummaryState();
+    clearInbox(QStringLiteral("agent_destroyed"));
     for (auto &handler : m_protocolHandlers) {
         handler(core_ir::Event{core_ir::EventShutdownComplete{}}, {}, {});
     }
@@ -358,6 +362,36 @@ void Agent::emitAgentStateProtocolEvent()
     }
 }
 
+void Agent::emitInboxEnqueued(const AgentInboxMessage &msg)
+{
+    const core_ir::EventInboxMessageEnqueued payload{
+        msg.id, msg.fromAgentId, m_agentId, msg.priority
+    };
+    for (auto &handler : m_protocolHandlers) {
+        handler(core_ir::Event{payload}, {}, {});
+    }
+}
+
+void Agent::emitInboxDelivered(const AgentInboxMessage &msg)
+{
+    const core_ir::EventInboxMessageDelivered payload{
+        msg.id, msg.fromAgentId, m_agentId
+    };
+    for (auto &handler : m_protocolHandlers) {
+        handler(core_ir::Event{payload}, {}, {});
+    }
+}
+
+void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason)
+{
+    const core_ir::EventInboxMessageDropped payload{
+        msg.id, msg.fromAgentId, m_agentId, reason
+    };
+    for (auto &handler : m_protocolHandlers) {
+        handler(core_ir::Event{payload}, {}, {});
+    }
+}
+
 // ── 操作 ──
 
 void Agent::submitUserDelivery(const QString &message,
@@ -550,20 +584,50 @@ void Agent::submitUserMessageWithSkill(const QString &message,
     }
 }
 
-void Agent::enqueueInboxMessage(const AgentInboxMessage &msg)
+bool Agent::enqueueInboxMessage(const AgentInboxMessage &msg)
 {
+    if (m_runtime.maxInboxMessages > 0) {
+        int active = 0;
+        for (const auto &m : m_inbox) {
+            if (!m.acked) {
+                ++active;
+            }
+        }
+        if (active >= m_runtime.maxInboxMessages) {
+            LOGW(LogCat::Agent) << "收件箱拒绝：容量超限"
+                << logf("agentId", m_agentId)
+                << logf("id", msg.id)
+                << logf("from", msg.fromAgentId)
+                << logf("limit", m_runtime.maxInboxMessages);
+            emitInboxDropped(msg, QStringLiteral("capacity"));
+            return false;
+        }
+    }
+    if (m_runtime.maxInboxMessageSize > 0
+        && msg.content.size() > m_runtime.maxInboxMessageSize) {
+        LOGW(LogCat::Agent) << "收件箱拒绝：单条消息超限"
+            << logf("agentId", m_agentId)
+            << logf("id", msg.id)
+            << logf("from", msg.fromAgentId)
+            << logf("size", msg.content.size())
+            << logf("limit", m_runtime.maxInboxMessageSize);
+        emitInboxDropped(msg, QStringLiteral("size"));
+        return false;
+    }
     m_inbox.append(msg);
     LOGD(LogCat::Agent) << "收件箱消息入队"
         << logf("from", msg.fromAgentId)
         << logf("id", msg.id)
         << logf("preview", msg.content.left(80));
+    emitInboxEnqueued(msg);
     emit stateChanged();
+    return true;
 }
 
 bool Agent::hasPendingInboxMessages() const
 {
     for (const auto &msg : m_inbox) {
-        if (!msg.acked) {
+        if (!msg.acked && !msg.inFlight) {
             return true;
         }
     }
@@ -574,13 +638,61 @@ QList<AgentInboxMessage> Agent::takePendingInboxMessages()
 {
     QList<AgentInboxMessage> pending;
     for (AgentInboxMessage &msg : m_inbox) {
-        if (msg.acked) {
+        if (msg.acked || msg.inFlight) {
             continue;
         }
-        msg.acked = true;
+        msg.inFlight = true;
         pending.append(msg);
     }
+    std::stable_sort(pending.begin(), pending.end(),
+        [](const AgentInboxMessage &a, const AgentInboxMessage &b) {
+            if (a.priority != b.priority) {
+                return a.priority > b.priority;
+            }
+            return a.timestamp < b.timestamp;
+        });
     return pending;
+}
+
+void Agent::ackInboxMessages(const QStringList &ids)
+{
+    for (const QString &id : ids) {
+        for (auto it = m_inbox.begin(); it != m_inbox.end(); ++it) {
+            if (it->id != id) {
+                continue;
+            }
+            AgentInboxMessage msg = *it;
+            msg.acked = true;
+            m_inbox.erase(it);
+            emitInboxDelivered(msg);
+            break;
+        }
+    }
+}
+
+void Agent::requeueInboxMessages(const QStringList &ids)
+{
+    for (const QString &id : ids) {
+        for (AgentInboxMessage &msg : m_inbox) {
+            if (msg.id == id && msg.inFlight) {
+                msg.inFlight = false;
+                break;
+            }
+        }
+    }
+}
+
+void Agent::clearInbox(const QString &reason)
+{
+    if (m_inbox.isEmpty()) {
+        return;
+    }
+    for (const AgentInboxMessage &msg : std::as_const(m_inbox)) {
+        if (!msg.acked) {
+            emitInboxDropped(msg, reason);
+        }
+    }
+    m_inbox.clear();
 }
 
 AbstractLoop *Agent::loop() const

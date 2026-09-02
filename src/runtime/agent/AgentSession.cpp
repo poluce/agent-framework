@@ -427,6 +427,11 @@ void AgentSession::clear()
         m_config.orchestration->onUnitsClearing();
     }
 
+    // 显式清邮箱：未读消息以 Dropped 事件可观测地丢弃（编排可在 onUnitsClearing 先抢救）。
+    for (Agent *agent : std::as_const(m_agents)) {
+        agent->clearInbox(QStringLiteral("session_cleared"));
+    }
+
     qDeleteAll(m_agents);
     m_agents.clear();
     m_order.clear();
