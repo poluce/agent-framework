@@ -1,6 +1,6 @@
 # 最小框架宿主
 
-只链安装后的 `AgentFramework`，不碰本仓 `src/core/app` / Host / GUI。
+只链安装后的 `AgentFramework`，不碰产品仓的 Host / GUI / 内置配方。
 
 样例做两件事：
 

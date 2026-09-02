@@ -77,7 +77,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 |------|------|------|
 | 身份 | `agentId` / `displayName` | 会话内唯一 id |
 | 可选树边 | `parentAgentId` / `setParentAgentId` | 口不规定必须成树；空=无父 |
-| 哑巴邮箱 | `enqueueInboxMessage` / `hasPendingInboxMessages` / `takePendingInboxMessages` / `ackInboxMessages` / `requeueInboxMessages` | 只收信。take 后需 ack/requeue；报文格式由配方编码后再注入账本 |
+| 哑巴邮箱 | `enqueueInboxMessage` / `hasPendingInboxMessages` / `takePendingInboxMessages` / `ackInboxMessages` / `requeueInboxMessages` / `clearInbox` | 只收信。take 后需 ack/requeue；清理时 `clearInbox` 发 Dropped；报文格式由配方编码后再注入账本 |
 | 开轮 | `submitUserDelivery` / `submitAgentTask` / `loop()->enqueueAgentTask` | 配方把任务喂给单元 |
 | 状态 | `status()` / `busy()` / `stateChanged` | 配方在 `onUnitStateChanged` 里看 |
 
@@ -142,7 +142,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 1. 继承 `AbstractOrchestration`。
 2. 实现 `toolSource` / `attach` / `detach`。
 3. 在 `onSessionStarted` 里按你的模式 `insertUnit`。需要主单元就在 `onUnitInserted` 记下第一个（或你指定的）id。
-4. 若单元之间要通信：往目标 `enqueueInboxMessage`，在 `onUnitStateChanged` 里对空闲单元 `takePendingInboxMessages`，编成你自己的报文，再 `loop()->enqueueAgentTask` 或 `submitAgentTask`。
+4. 若单元之间要通信：往目标 `enqueueInboxMessage`，在 `onUnitStateChanged` 里对空闲单元 `takePendingInboxMessages`，编成你自己的报文，再 `loop()->enqueueAgentTask`；投递成功调用 `ackInboxMessages`，失败调用 `requeueInboxMessages`（`submitAgentTask` 无返回值，需自行保证投递成功后再 ack）。
 5. 若允许宿主加/删单元：覆盖 `createUnit` / `closeUnit`。
 6. 若有专用工具：实现 `AbstractToolSource`，在 `toolSource()` 返回；用 `toolVisible` 按单元裁剪。
 7. 在宿主的 `OrchestrationRegistry::add` 登记，不要改 `Agent` / `AgentSession`。
