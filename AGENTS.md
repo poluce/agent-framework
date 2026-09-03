@@ -192,6 +192,7 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/runtime/agent/AgentModePolicy.h` | 模式策略口（具体策略由宿主注入） |
 | `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
 | `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
+| `docs/TODO.md` | 技术债清单（已知耦合与待办重构） |
 | `examples/minimal/` | 仓外最小宿主：假 Provider 跑一轮 |
 | `tests/` | 公开面测试 + 本树内核私有头测试 |
 
