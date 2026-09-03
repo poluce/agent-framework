@@ -1,10 +1,10 @@
 #include "BuiltinToolRuntime.h"
 
 #include "AbstractBuiltinTool.h"
-#include "BuiltinTools/RunCommandTool.h"
+#include "builtin/RunCommandTool.h"
 #include "logging/LogManager.h"
-#include "tools/BuiltinTools/helpers/ContentEditHelper.h"
-#include "tools/BuiltinTools/helpers/WorkspaceHelper.h"
+#include "tools/builtin/helpers/ContentEditHelper.h"
+#include "tools/builtin/helpers/WorkspaceHelper.h"
 #include "tools/WriteCoordinator.h"
 
 #include <QCoreApplication>

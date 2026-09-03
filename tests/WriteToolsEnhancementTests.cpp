@@ -1,9 +1,9 @@
 #include "tools/BuiltinToolRuntime.h"
-#include "tools/BuiltinTools/WriteFileTool.h"
-#include "tools/BuiltinTools/EditTool.h"
-#include "tools/BuiltinTools/ReadFileTool.h"
-#include "tools/BuiltinTools/MultiEditTool.h"
-#include "tools/BuiltinTools/helpers/WorkspaceHelper.h"
+#include "tools/builtin/WriteFileTool.h"
+#include "tools/builtin/EditTool.h"
+#include "tools/builtin/ReadFileTool.h"
+#include "tools/builtin/MultiEditTool.h"
+#include "tools/builtin/helpers/WorkspaceHelper.h"
 #include "tools/WriteCoordinator.h"
 
 #include <QtTest/QtTest>

@@ -1,16 +1,16 @@
 #pragma once
 
 #include <optional>
-#include "AgentMode.h"
-#include "SessionRuntime.h"
+#include "config/AgentMode.h"
+#include "config/SessionRuntime.h"
 #include "config/SystemPromptBuilder.h"
-#include "models/ConversationMessage.h"
+#include "types/ConversationMessage.h"
 #include "agent/ProviderRunLedger.h"
 #include "tools/BuiltinToolRuntime.h"
 #include "providers/ProviderTypes/ProviderTypes.h"
 
-#include "ir/CoreEventChannel.h"
-#include "ir/CoreEvent.h"
+#include "types/CoreEventChannel.h"
+#include "types/CoreEvent.h"
 #include "AgentModePolicy.h"
 
 #include <QList>

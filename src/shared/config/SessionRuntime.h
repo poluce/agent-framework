@@ -1,8 +1,8 @@
 #pragma once
 
 #include "AgentMode.h"
-#include "compact/CompactConfig.h"
-#include "config/ModelTokenDefaults.h"
+#include "CompactConfig.h"
+#include "ModelTokenDefaults.h"
 #include <QJsonObject>
 #include <QVariant>
 

@@ -1,4 +1,4 @@
-#include "tools/BuiltinTools/RunCommandTool.h"
+#include "tools/builtin/RunCommandTool.h"
 
 #include <QtTest/QtTest>
 

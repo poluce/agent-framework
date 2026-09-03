@@ -1,4 +1,4 @@
-#include "tools/BuiltinTools/helpers/PatchUtils.h"
+#include "tools/builtin/helpers/PatchUtils.h"
 
 #include <QtTest/QtTest>
 

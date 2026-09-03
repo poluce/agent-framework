@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ToolTypes.h"
-#include "agent/AgentMode.h"
+#include "config/AgentMode.h"
 
 #include <QObject>
 #include <QString>

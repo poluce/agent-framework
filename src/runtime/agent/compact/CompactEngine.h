@@ -1,9 +1,9 @@
 #pragma once
 
-#include "CompactConfig.h"
+#include "config/CompactConfig.h"
 #include "agent/ProviderRunLedger.h"
-#include "ir/CoreEvent.h"
-#include "ir/CoreEventChannel.h"
+#include "types/CoreEvent.h"
+#include "types/CoreEventChannel.h"
 
 #include <QObject>
 #include <QList>

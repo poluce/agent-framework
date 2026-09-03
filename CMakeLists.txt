@@ -53,6 +53,10 @@ set(AGENT_SHARED_SOURCES
     src/shared/logging/LogManager.h
     src/shared/config/ProcessSafety.cpp
     src/shared/config/ProcessSafety.h
+    src/shared/config/SessionRuntime.cpp
+    src/shared/config/SessionRuntime.h
+    src/shared/config/AgentMode.h
+    src/shared/config/CompactConfig.h
     src/shared/config/ModelTokenDefaults.h
     src/shared/config/PathGuard.h
     src/shared/config/SessionRuntime.fields.h
@@ -83,9 +87,9 @@ set(AGENT_RUNTIME_SOURCES
     ${AGENT_RUNTIME_TOOLS_SOURCES}
     ${AGENT_RUNTIME_PROVIDERS_SOURCES}
     ${AGENT_RUNTIME_SKILLS_SOURCES}
-    src/runtime/ir/CoreEvent.h
-    src/runtime/ir/CoreEventChannel.h
-    src/runtime/models/ConversationMessage.h
+    src/runtime/types/CoreEvent.h
+    src/runtime/types/CoreEventChannel.h
+    src/runtime/types/ConversationMessage.h
     src/runtime/config/SystemPromptBuilder.cpp
     src/runtime/config/SystemPromptBuilder.h
     src/runtime/framework/AgentFramework.h
@@ -107,22 +111,19 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     agent/AbstractOrchestration.h
     agent/AbstractLoop.h
     agent/Agent.h
-    agent/AgentMode.h
     agent/AgentModePolicy.h
     agent/AgentSession.h
     agent/AgentTaskManager.h
     agent/OrchestrationRegistry.h
     agent/ProviderRunLedger.h
-    agent/SessionRuntime.h
-    agent/compact/CompactConfig.h
     agent/compact/CompactEngine.h
     agent/compact/ModelViewStore.h
     agent/compact/SummaryJobQueue.h
     agent/compact/SummaryStore.h
     config/SystemPromptBuilder.h
-    ir/CoreEvent.h
-    ir/CoreEventChannel.h
-    models/ConversationMessage.h
+    types/CoreEvent.h
+    types/CoreEventChannel.h
+    types/ConversationMessage.h
     providers/ProviderTypes/ProviderAdapterTypes.h
     providers/ProviderTypes/ProviderCommon.h
     providers/ProviderTypes/ProviderEvent.h
@@ -160,6 +161,9 @@ foreach(_rel IN LISTS AGENT_FRAMEWORK_PUBLIC_HEADERS)
 endforeach()
 foreach(_pair IN ITEMS
         "shared/logging/LogManager.h|logging/LogManager.h"
+        "shared/config/SessionRuntime.h|config/SessionRuntime.h"
+        "shared/config/AgentMode.h|config/AgentMode.h"
+        "shared/config/CompactConfig.h|config/CompactConfig.h"
         "shared/config/ModelTokenDefaults.h|config/ModelTokenDefaults.h"
         "shared/config/SessionRuntime.fields.h|config/SessionRuntime.fields.h"
         "shared/config/ProcessSafety.h|config/ProcessSafety.h"
@@ -212,6 +216,9 @@ install(DIRECTORY "${AGENT_FW_SRC}/shared/logging/"
     FILES_MATCHING PATTERN "*.h")
 
 install(FILES
+    "${AGENT_FW_SRC}/shared/config/SessionRuntime.h"
+    "${AGENT_FW_SRC}/shared/config/AgentMode.h"
+    "${AGENT_FW_SRC}/shared/config/CompactConfig.h"
     "${AGENT_FW_SRC}/shared/config/ModelTokenDefaults.h"
     "${AGENT_FW_SRC}/shared/config/SessionRuntime.fields.h"
     "${AGENT_FW_SRC}/shared/config/ProcessSafety.h"

@@ -2,7 +2,7 @@
 
 #include "providers/ProviderTypes/ProviderTypes.h"
 #include "providers/ProviderTypes/ProviderAdapterTypes.h"
-#include "providers/core/ProviderSseParser.h"
+#include "providers/transport/ProviderSseParser.h"
 #include "logging/LogManager.h"
 
 #include <QNetworkAccessManager>

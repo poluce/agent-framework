@@ -1,6 +1,6 @@
 #include "HttpSseChannel.h"
 
-#include "ProviderRetryPolicy.h"
+#include "providers/core/ProviderRetryPolicy.h"
 
 #include <QJsonDocument>
 #include <QNetworkReply>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "models/ConversationMessage.h"
+#include "types/ConversationMessage.h"
 
 #include <QList>
 #include <QSet>

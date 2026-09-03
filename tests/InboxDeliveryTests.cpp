@@ -1,6 +1,6 @@
 #include "agent/Agent.h"
-#include "agent/SessionRuntime.h"
-#include "ir/CoreEvent.h"
+#include "config/SessionRuntime.h"
+#include "types/CoreEvent.h"
 
 #include <QTemporaryDir>
 #include <QtTest>

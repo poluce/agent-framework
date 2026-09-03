@@ -1,14 +1,14 @@
 #pragma once
 
 #include "AbstractLoop.h"
-#include "AgentMode.h"
+#include "config/AgentMode.h"
 #include "AgentTaskManager.h"
 #include "agent/compact/CompactEngine.h"
 #include "agent/compact/ModelViewStore.h"
 #include "agent/compact/SummaryJobQueue.h"
 #include "agent/compact/SummaryStore.h"
-#include "SessionRuntime.h"
-#include "ir/CoreEvent.h"
+#include "config/SessionRuntime.h"
+#include "types/CoreEvent.h"
 #include <QDateTime>
 #include <QJsonObject>
 #include <QObject>

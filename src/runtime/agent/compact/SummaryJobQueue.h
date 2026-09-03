@@ -1,8 +1,8 @@
 #pragma once
 
-#include "CompactConfig.h"
+#include "config/CompactConfig.h"
 #include "SummaryStore.h"
-#include "models/ConversationMessage.h"
+#include "types/ConversationMessage.h"
 
 #include <QList>
 #include <QObject>

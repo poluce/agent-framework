@@ -12,16 +12,16 @@
 #include <QSet>
 #include <memory>
 
-#include "BuiltinTools/GlobTool.h"
-#include "BuiltinTools/ReadFileTool.h"
-#include "BuiltinTools/GrepTool.h"
-#include "BuiltinTools/WriteFileTool.h"
-#include "BuiltinTools/EditTool.h"
-#include "BuiltinTools/NotebookEditTool.h"
-#include "BuiltinTools/RunCommandTool.h"
-#include "BuiltinTools/SkillListTool.h"
-#include "BuiltinTools/AskQuestionTool.h"
-#include "BuiltinTools/MultiEditTool.h"
+#include "builtin/GlobTool.h"
+#include "builtin/ReadFileTool.h"
+#include "builtin/GrepTool.h"
+#include "builtin/WriteFileTool.h"
+#include "builtin/EditTool.h"
+#include "builtin/NotebookEditTool.h"
+#include "builtin/RunCommandTool.h"
+#include "builtin/SkillListTool.h"
+#include "builtin/AskQuestionTool.h"
+#include "builtin/MultiEditTool.h"
 
 namespace {
 
