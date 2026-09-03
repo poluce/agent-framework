@@ -11,6 +11,7 @@
 #include "providers/core/AbstractProvider.h"
 #include "providers/service/ProviderCredential.h"
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QUuid>
 
 #include <QDir>
@@ -37,6 +38,9 @@ AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
     , m_coordinator(std::make_unique<ToolCoordinator>(this, config.externalToolSource))
     , m_writeCoordinator(std::make_unique<WriteCoordinator>(this))
 {
+    m_sessionBlobKey = m_sessionId.trimmed().isEmpty()
+        ? QUuid::createUuid().toString(QUuid::WithoutBraces)
+        : m_sessionId;
     // 会话成员齐了再 attach，编排才能用 insertUnit / coordinator
     if (m_config.orchestration) {
         m_config.orchestration->attach(this);
@@ -51,6 +55,8 @@ AgentSession::~AgentSession()
     if (m_config.orchestration) {
         m_config.orchestration->detach();
     }
+    // 会话销毁：自动清理本会话 blob 目录
+    QDir(sessionBlobRoot()).removeRecursively();
 }
 
 const SessionRuntime &AgentSession::runtime() const
@@ -172,7 +178,31 @@ void AgentSession::setSessionWorkingDirectory(const QString &workingDirectory)
 // ── 会话标识 ──
 
 QString AgentSession::sessionId() const { return m_sessionId; }
-void AgentSession::setSessionId(const QString &id) { m_sessionId = id; }
+void AgentSession::setSessionId(const QString &id)
+{
+    if (m_sessionId == id) {
+        return;
+    }
+    m_sessionId = id;
+    if (!m_sessionId.trimmed().isEmpty()) {
+        m_sessionBlobKey = m_sessionId;
+    }
+    applyBlobRootToAgents();
+}
+
+QString AgentSession::sessionBlobRoot() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+        + QStringLiteral("/provider-blobs/") + m_sessionBlobKey;
+}
+
+void AgentSession::applyBlobRootToAgents()
+{
+    const QString root = sessionBlobRoot();
+    for (Agent *agent : std::as_const(m_agents)) {
+        agent->loop()->ledger().setBlobRoot(root);
+    }
+}
 QString AgentSession::forkedFromSessionId() const { return m_forkedFromSessionId; }
 void AgentSession::setForkedFromSessionId(const QString &sourceSessionId)
 {
@@ -229,6 +259,7 @@ Agent *AgentSession::insertUnit(const QString &agentId,
         m_config.orchestration->onUnitInserted(agent);
     }
     agent->setCoordinator(m_coordinator.get());
+    agent->loop()->ledger().setBlobRoot(sessionBlobRoot());
     connectAgentSignals(agent);
     emit agentAdded(agentId);
     pushEvent(core_ir::EventAgentStateChanged{agentId, false, {}, true, false, {}, {}, 0,
@@ -437,6 +468,8 @@ void AgentSession::clear()
     m_order.clear();
     m_nextIndex = 1;
     m_selectedAgentId.clear();
+    // 会话清空：自动清理本会话 blob 目录
+    QDir(sessionBlobRoot()).removeRecursively();
 }
 
 void AgentSession::start()

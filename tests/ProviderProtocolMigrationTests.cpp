@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QTemporaryDir>
+
 #include "agent/ProviderRunLedger.h"
 #include "providers/ProviderTypes/ProviderTypes.h"
 
@@ -247,7 +249,10 @@ void ProviderProtocolMigrationTests::extendedProviderItemsSurvivePersistence()
 
 void ProviderProtocolMigrationTests::inlineMediaIsExternalizedFromLedgerJson()
 {
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
     ProviderRunLedger ledger;
+    ledger.setBlobRoot(tempDir.path());
     ProviderImageAsset image =
         ProviderImageAsset::fromBytes(QByteArrayLiteral("png-bytes"),
                                       QStringLiteral("image/png"));
@@ -757,7 +762,10 @@ void ProviderProtocolMigrationTests::indexesRemainCorrectAfterRemove()
 
 void ProviderProtocolMigrationTests::buildRequestReportsHydrateError()
 {
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
     ProviderRunLedger ledger;
+    ledger.setBlobRoot(tempDir.path());
     ProviderImageAsset image;
     image.blobRef.blobId = QStringLiteral("missing-blob");
     image.blobRef.contentHash = QStringLiteral("sha256:0000");

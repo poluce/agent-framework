@@ -35,6 +35,10 @@ class ProviderRunLedger
 {
 public:
     void clear();
+    /// 设置本账本 blob 存储根目录（建议按会话隔离）；空 = 不读写磁盘。
+    void setBlobRoot(const QString &path);
+    /// 删除 blobRoot 目录中不在 keep 集合内的文件（宿主兜底用）。
+    static void gcProviderBlobs(const QString &blobRoot, const QSet<QString> &keep);
 
     [[nodiscard]] const QList<ConversationMessage> &entries() const;
 
@@ -134,5 +138,6 @@ private:
     QHash<QString, qsizetype> m_entryIndex;
     QHash<QString, qsizetype> m_providerIndex;
     QHash<QString, qsizetype> m_toolUseIndex;
+    QString m_blobRoot;
     qint64 m_lastProviderInputTokens = 0;
 };

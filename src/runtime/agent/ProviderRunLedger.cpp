@@ -51,21 +51,15 @@ void preferIncomingTrimmed(QString &target, const QString &incoming)
         target = incoming;
 }
 
-QString providerBlobRoot()
-{
-    return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
-           + QStringLiteral("/provider-blobs");
-}
-
 template<typename Asset>
-void externalizeAsset(Asset &asset)
+void externalizeAsset(Asset &asset, const QString &blobRoot)
 {
-    if (asset.data.isEmpty() || asset.blobRef.hasBlobId())
+    if (asset.data.isEmpty() || asset.blobRef.hasBlobId() || blobRoot.isEmpty())
         return;
     const QByteArray digest =
         QCryptographicHash::hash(asset.data, QCryptographicHash::Sha256).toHex();
     const QString blobId = QString::fromLatin1(digest);
-    QDir root(providerBlobRoot());
+    QDir root(blobRoot);
     if (!root.exists() && !root.mkpath(QStringLiteral(".")))
         return;
     const QString path = root.filePath(blobId);
@@ -85,13 +79,13 @@ void externalizeAsset(Asset &asset)
 }
 
 template<typename Asset>
-bool hydrateAsset(Asset &asset)
+bool hydrateAsset(Asset &asset, const QString &blobRoot)
 {
     if (!asset.data.isEmpty() || !asset.blobRef.hasBlobId()
-        || asset.blobRef.scheme != ProviderUriScheme::Blob) {
+        || asset.blobRef.scheme != ProviderUriScheme::Blob || blobRoot.isEmpty()) {
         return true;
     }
-    QFile file(QDir(providerBlobRoot()).filePath(asset.blobRef.blobId));
+    QFile file(QDir(blobRoot).filePath(asset.blobRef.blobId));
     if (!file.open(QIODevice::ReadOnly))
         return false;
     const QByteArray data = file.readAll();
@@ -108,41 +102,41 @@ bool hydrateAsset(Asset &asset)
     return true;
 }
 
-void externalizePart(ProviderMessagePart &part)
+void externalizePart(ProviderMessagePart &part, const QString &blobRoot)
 {
     switch (part.kind) {
-    case ProviderPartKind::Image: externalizeAsset(part.image); break;
-    case ProviderPartKind::Audio: externalizeAsset(part.audio); break;
-    case ProviderPartKind::Document: externalizeAsset(part.document); break;
-    case ProviderPartKind::Video: externalizeAsset(part.video); break;
+    case ProviderPartKind::Image: externalizeAsset(part.image, blobRoot); break;
+    case ProviderPartKind::Audio: externalizeAsset(part.audio, blobRoot); break;
+    case ProviderPartKind::Document: externalizeAsset(part.document, blobRoot); break;
+    case ProviderPartKind::Video: externalizeAsset(part.video, blobRoot); break;
     case ProviderPartKind::Text: break;
     }
 }
 
-bool hydratePart(ProviderMessagePart &part)
+bool hydratePart(ProviderMessagePart &part, const QString &blobRoot)
 {
     switch (part.kind) {
-    case ProviderPartKind::Image: return hydrateAsset(part.image);
-    case ProviderPartKind::Audio: return hydrateAsset(part.audio);
-    case ProviderPartKind::Document: return hydrateAsset(part.document);
-    case ProviderPartKind::Video: return hydrateAsset(part.video);
+    case ProviderPartKind::Image: return hydrateAsset(part.image, blobRoot);
+    case ProviderPartKind::Audio: return hydrateAsset(part.audio, blobRoot);
+    case ProviderPartKind::Document: return hydrateAsset(part.document, blobRoot);
+    case ProviderPartKind::Video: return hydrateAsset(part.video, blobRoot);
     case ProviderPartKind::Text: return true;
     }
     return true;
 }
 
-void externalizeProviderItem(ProviderItem &item)
+void externalizeProviderItem(ProviderItem &item, const QString &blobRoot)
 {
     for (ProviderMessagePart &part : item.parts)
-        externalizePart(part);
+        externalizePart(part, blobRoot);
     for (ProviderMessagePart &part : item.outputParts)
-        externalizePart(part);
+        externalizePart(part, blobRoot);
 }
 
-bool hydrateProviderItem(ProviderItem &item, QString *error)
+bool hydrateProviderItem(ProviderItem &item, QString *error, const QString &blobRoot)
 {
     for (ProviderMessagePart &part : item.parts) {
-        if (!hydratePart(part)) {
+        if (!hydratePart(part, blobRoot)) {
             if (error) {
                 *error = QStringLiteral("blob 缺失或校验失败");
             }
@@ -150,7 +144,7 @@ bool hydrateProviderItem(ProviderItem &item, QString *error)
         }
     }
     for (ProviderMessagePart &part : item.outputParts) {
-        if (!hydratePart(part)) {
+        if (!hydratePart(part, blobRoot)) {
             if (error) {
                 *error = QStringLiteral("blob 缺失或校验失败");
             }
@@ -158,21 +152,6 @@ bool hydrateProviderItem(ProviderItem &item, QString *error)
         }
     }
     return true;
-}
-
-/// 删除 provider-blobs 目录中不在 keep 集合内的文件（宿主在适当时机调用）。
-void gcProviderBlobs(const QSet<QString> &keep)
-{
-    const QDir root(providerBlobRoot());
-    if (!root.exists()) {
-        return;
-    }
-    const QStringList files = root.entryList(QDir::Files, QDir::Name);
-    for (const QString &fileName : files) {
-        if (!keep.contains(fileName)) {
-            QFile::remove(root.filePath(fileName));
-        }
-    }
 }
 
 QString statusToString(const ConversationMessage::Status status)
@@ -771,6 +750,25 @@ void ProviderRunLedger::clear()
     m_lastProviderInputTokens = 0;
 }
 
+void ProviderRunLedger::setBlobRoot(const QString &path)
+{
+    m_blobRoot = path;
+}
+
+void ProviderRunLedger::gcProviderBlobs(const QString &blobRoot, const QSet<QString> &keep)
+{
+    const QDir root(blobRoot);
+    if (!root.exists()) {
+        return;
+    }
+    const QStringList files = root.entryList(QDir::Files, QDir::Name);
+    for (const QString &fileName : files) {
+        if (!keep.contains(fileName)) {
+            QFile::remove(root.filePath(fileName));
+        }
+    }
+}
+
 void ProviderRunLedger::rebuildIndexes()
 {
     m_entryIndex.clear();
@@ -828,7 +826,7 @@ QString ProviderRunLedger::appendUiIngress(ConversationMessage entry)
         if (!isReplayableReasoningItem(*item))
             return entry.id;
         ProviderItem storedItem = *item;
-        externalizeProviderItem(storedItem);
+        externalizeProviderItem(storedItem, m_blobRoot);
         ProviderRecord record;
         record.item = std::move(storedItem);
         record.entryId = entry.id;
@@ -858,7 +856,7 @@ QString ProviderRunLedger::appendProviderItem(ProviderItem item,
     if (entry.kind == ConversationMessage::Kind::ToolCall && !entry.toolUseId.isEmpty()) {
         indexToolUse(entry.toolUseId, m_entries.size() - 1);
     }
-    externalizeProviderItem(item);
+    externalizeProviderItem(item, m_blobRoot);
     ProviderRecord record;
     record.item = std::move(item);
     record.entryId = entry.id;
@@ -963,7 +961,7 @@ bool ProviderRunLedger::setProviderItemForEntry(const QString &entryId,
         return true;
     }
     if (externalize)
-        externalizeProviderItem(item);
+        externalizeProviderItem(item, m_blobRoot);
     if (ProviderRecord *existing = findProviderRecord(entryId)) {
         existing->item = std::move(item);
         existing->submitted = true;
@@ -1366,7 +1364,7 @@ QList<ProviderItem> ProviderRunLedger::collectProviderItems(const bool hydrate) 
         ProviderItem item = record.item;
         if (hydrate) {
             QString error;
-            if (!hydrateProviderItem(item, &error)) {
+            if (!hydrateProviderItem(item, &error, m_blobRoot)) {
                 qWarning().noquote()
                     << QStringLiteral("ProviderRunLedger providerItems hydrate 失败：%1")
                            .arg(error);
@@ -1381,7 +1379,7 @@ QList<ProviderItem> ProviderRunLedger::hydrateItemsForRequest(QList<ProviderItem
                                                              QString *error) const
 {
     for (ProviderItem &item : items) {
-        if (!hydrateProviderItem(item, error)) {
+        if (!hydrateProviderItem(item, error, m_blobRoot)) {
             qWarning().noquote()
                 << QStringLiteral("ProviderRunLedger buildRequest hydrate 失败：%1")
                        .arg(error ? *error : QStringLiteral("未知错误"));

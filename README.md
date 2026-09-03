@@ -17,7 +17,7 @@ Qt 6 上的 **Agent 执行单元内核**：一轮对话、工具、账本、压�
 - 账本内部引入索引，`findById` / `findProviderRecord` / `findToolCallByUseId` 变 O(1)
 - 回滚统一为回合事务模型：孤儿 ToolResult 和 Error 会被清理
 - 加载历史数据不再写 blob 文件；blob hydrate 失败可观测（`buildRequest().hydrateError`）
-- 新增 `referencedBlobIds()` 供宿主做全局 blob GC
+- blob 存储按会话隔离，会话关闭/清空时自动清理；`referencedBlobIds()` / `gcProviderBlobs()` 作为崩溃残留兜底
 
 ## 0.2 变更（breaking）
 

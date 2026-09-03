@@ -17,7 +17,8 @@
 ### 🟢 新增功能
 
 - 账本内部引入索引，`findById` / `findProviderRecord` / `findToolCallByUseId` 变 O(1)
-- 新增 `referencedBlobIds()` 供宿主做全局 blob GC
+- blob 存储按会话隔离，会话关闭/清空时自动清理
+- 新增 `referencedBlobIds()` / `gcProviderBlobs()` 作为崩溃残留的兜底
 - `buildRequest()` 新增 `hydrateError`，blob 缺失可观测
 
 ### 🟡 功能修改

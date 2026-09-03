@@ -179,10 +179,13 @@ private:
     void handleRenameEvent(const ProviderEvent &event, AbstractProvider *provider,
                            const QMetaObject::Connection &connection,
                            const std::shared_ptr<QString> &summaryText);
+    [[nodiscard]] QString sessionBlobRoot() const;
+    void applyBlobRootToAgents();
 
     AgentSessionConfig m_config;
     SessionRuntime m_runtime;
     QString m_sessionId;
+    QString m_sessionBlobKey;
     QString m_title;
     QString m_forkedFromSessionId;
     QString m_toolResultStoreDir;
