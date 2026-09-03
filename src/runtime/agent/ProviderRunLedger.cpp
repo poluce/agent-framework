@@ -85,26 +85,27 @@ void externalizeAsset(Asset &asset)
 }
 
 template<typename Asset>
-void hydrateAsset(Asset &asset)
+bool hydrateAsset(Asset &asset)
 {
     if (!asset.data.isEmpty() || !asset.blobRef.hasBlobId()
         || asset.blobRef.scheme != ProviderUriScheme::Blob) {
-        return;
+        return true;
     }
     QFile file(QDir(providerBlobRoot()).filePath(asset.blobRef.blobId));
     if (!file.open(QIODevice::ReadOnly))
-        return;
+        return false;
     const QByteArray data = file.readAll();
     if (asset.blobRef.byteSize > 0 && data.size() != asset.blobRef.byteSize)
-        return;
+        return false;
     if (asset.blobRef.contentHash.startsWith(QStringLiteral("sha256:"))) {
         const QString actual = QStringLiteral("sha256:")
             + QString::fromLatin1(
                 QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
         if (actual != asset.blobRef.contentHash)
-            return;
+            return false;
     }
     asset.data = data;
+    return true;
 }
 
 void externalizePart(ProviderMessagePart &part)
@@ -118,15 +119,16 @@ void externalizePart(ProviderMessagePart &part)
     }
 }
 
-void hydratePart(ProviderMessagePart &part)
+bool hydratePart(ProviderMessagePart &part)
 {
     switch (part.kind) {
-    case ProviderPartKind::Image: hydrateAsset(part.image); break;
-    case ProviderPartKind::Audio: hydrateAsset(part.audio); break;
-    case ProviderPartKind::Document: hydrateAsset(part.document); break;
-    case ProviderPartKind::Video: hydrateAsset(part.video); break;
-    case ProviderPartKind::Text: break;
+    case ProviderPartKind::Image: return hydrateAsset(part.image);
+    case ProviderPartKind::Audio: return hydrateAsset(part.audio);
+    case ProviderPartKind::Document: return hydrateAsset(part.document);
+    case ProviderPartKind::Video: return hydrateAsset(part.video);
+    case ProviderPartKind::Text: return true;
     }
+    return true;
 }
 
 void externalizeProviderItem(ProviderItem &item)
@@ -137,13 +139,40 @@ void externalizeProviderItem(ProviderItem &item)
         externalizePart(part);
 }
 
-ProviderItem hydratedProviderItem(ProviderItem item)
+bool hydrateProviderItem(ProviderItem &item, QString *error)
 {
-    for (ProviderMessagePart &part : item.parts)
-        hydratePart(part);
-    for (ProviderMessagePart &part : item.outputParts)
-        hydratePart(part);
-    return item;
+    for (ProviderMessagePart &part : item.parts) {
+        if (!hydratePart(part)) {
+            if (error) {
+                *error = QStringLiteral("blob 缺失或校验失败");
+            }
+            return false;
+        }
+    }
+    for (ProviderMessagePart &part : item.outputParts) {
+        if (!hydratePart(part)) {
+            if (error) {
+                *error = QStringLiteral("blob 缺失或校验失败");
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+/// 删除 provider-blobs 目录中不在 keep 集合内的文件（宿主在适当时机调用）。
+void gcProviderBlobs(const QSet<QString> &keep)
+{
+    const QDir root(providerBlobRoot());
+    if (!root.exists()) {
+        return;
+    }
+    const QStringList files = root.entryList(QDir::Files, QDir::Name);
+    for (const QString &fileName : files) {
+        if (!keep.contains(fileName)) {
+            QFile::remove(root.filePath(fileName));
+        }
+    }
 }
 
 QString statusToString(const ConversationMessage::Status status)
@@ -736,7 +765,42 @@ void ProviderRunLedger::clear()
 {
     m_entries.clear();
     m_providerRecords.clear();
+    m_entryIndex.clear();
+    m_providerIndex.clear();
+    m_toolUseIndex.clear();
     m_lastProviderInputTokens = 0;
+}
+
+void ProviderRunLedger::rebuildIndexes()
+{
+    m_entryIndex.clear();
+    m_providerIndex.clear();
+    m_toolUseIndex.clear();
+    for (qsizetype i = 0; i < m_entries.size(); ++i) {
+        const ConversationMessage &entry = m_entries.at(i);
+        m_entryIndex.insert(entry.id, i);
+        if (entry.kind == ConversationMessage::Kind::ToolCall && !entry.toolUseId.isEmpty()) {
+            m_toolUseIndex.insert(entry.toolUseId, i);
+        }
+    }
+    for (qsizetype i = 0; i < m_providerRecords.size(); ++i) {
+        m_providerIndex.insert(m_providerRecords.at(i).entryId, i);
+    }
+}
+
+void ProviderRunLedger::indexEntry(const QString &id, const qsizetype pos)
+{
+    m_entryIndex.insert(id, pos);
+}
+
+void ProviderRunLedger::indexProviderRecord(const QString &entryId, const qsizetype pos)
+{
+    m_providerIndex.insert(entryId, pos);
+}
+
+void ProviderRunLedger::indexToolUse(const QString &toolUseId, const qsizetype pos)
+{
+    m_toolUseIndex.insert(toolUseId, pos);
 }
 
 const QList<ConversationMessage> &ProviderRunLedger::entries() const
@@ -753,6 +817,10 @@ QString ProviderRunLedger::appendUiIngress(ConversationMessage entry)
         entry.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     }
     m_entries.append(entry);
+    indexEntry(entry.id, m_entries.size() - 1);
+    if (entry.kind == ConversationMessage::Kind::ToolCall && !entry.toolUseId.isEmpty()) {
+        indexToolUse(entry.toolUseId, m_entries.size() - 1);
+    }
     if (const auto item = providerItemFromUiIngress(entry); item.has_value()) {
         // 空推理只进 UI（过程卡），不进线路；内容到达后再 setProviderItemForEntry。
         // 否则 ensureStreamingReasoningEntry 会立刻落一条非法 ProviderRecord，
@@ -769,6 +837,7 @@ QString ProviderRunLedger::appendUiIngress(ConversationMessage entry)
         record.continuationId = entry.providerContinuationId;
         refreshTokenEstimate(record);
         m_providerRecords.append(std::move(record));
+        indexProviderRecord(entry.id, m_providerRecords.size() - 1);
     }
     return entry.id;
 }
@@ -785,6 +854,10 @@ QString ProviderRunLedger::appendProviderItem(ProviderItem item,
     if (entry.createdAtMs == 0)
         entry.createdAtMs = QDateTime::currentMSecsSinceEpoch();
     m_entries.append(entry);
+    indexEntry(entry.id, m_entries.size() - 1);
+    if (entry.kind == ConversationMessage::Kind::ToolCall && !entry.toolUseId.isEmpty()) {
+        indexToolUse(entry.toolUseId, m_entries.size() - 1);
+    }
     externalizeProviderItem(item);
     ProviderRecord record;
     record.item = std::move(item);
@@ -793,85 +866,104 @@ QString ProviderRunLedger::appendProviderItem(ProviderItem item,
     record.continuationId = continuationId;
     refreshTokenEstimate(record);
     m_providerRecords.append(std::move(record));
+    indexProviderRecord(entry.id, m_providerRecords.size() - 1);
     return entry.id;
 }
 
-void ProviderRunLedger::setProviderItemForEntry(const QString &entryId,
+bool ProviderRunLedger::setProviderItemForEntry(const QString &entryId,
                                                 ProviderItem item,
-                                                const QString &continuationId)
+                                                const QString &continuationId,
+                                                bool externalize)
 {
     if (item.itemId.isEmpty())
         item.itemId = entryId;
-    if (ConversationMessage *entry = findById(entryId)) {
-        const ConversationMessage projection =
-            conversationEntryForItem(item, entry->turnId, continuationId);
-        if (entry->text.isEmpty())
-            entry->text = projection.text;
-        if (projection.imageOutput.hasUri()
-            || projection.imageOutput.hasInlineData()
-            || projection.imageOutput.blobRef.hasBlobId()) {
-            entry->imageOutput = projection.imageOutput;
-        }
-        if (item.kind == ProviderItemKind::Reasoning) {
-            // 流式路径：UI 可能已累积 reasoningContent，完成态 item 却双空。
-            // 不得用空投影覆盖已有正文/签名。
-            if (!projection.reasoningContent.trimmed().isEmpty()
-                || entry->reasoningContent.trimmed().isEmpty()) {
-                entry->reasoningContent = projection.reasoningContent;
-            }
-            if (!projection.reasoningSignature.trimmed().isEmpty()
-                || entry->reasoningSignature.trimmed().isEmpty()) {
-                entry->reasoningSignature = projection.reasoningSignature;
-            }
-            entry->reasoningRedacted = projection.reasoningRedacted || entry->reasoningRedacted;
-            entry->reasoningMustReplay =
-                projection.reasoningMustReplay || entry->reasoningMustReplay;
-            // 若合并后 UI 已可回放而 item 仍空，用 UI 回填线路 item。
-            if (!isReplayableReasoningItem(item)
-                && (entry->reasoningRedacted
-                    || !entry->reasoningContent.trimmed().isEmpty()
-                    || !entry->reasoningSignature.trimmed().isEmpty())) {
-                item = ProviderItem::makeReasoning(entry->reasoningContent,
-                                                   entry->reasoningSignature,
-                                                   entry->reasoningRedacted,
-                                                   entry->reasoningMustReplay);
-                item.itemId = entryId;
-            }
-        }
-        entry->providerMustReplay = projection.providerMustReplay;
-        if (projection.kind == ConversationMessage::Kind::ToolCall) {
-            // 流式 ToolCallCompleted 可能已写入完整 input/raw；MessageCompleted 的
-            // fallback FunctionCall 若仍空参，不得覆盖（否则下一轮 arguments=""）。
-            preferIncoming(entry->toolCall.id, projection.toolCall.id);
-            preferIncoming(entry->toolCall.toolName, projection.toolCall.toolName);
-            preferIncoming(entry->toolCall.input, projection.toolCall.input);
-            preferIncomingTrimmed(entry->toolCall.rawInputJson, projection.toolCall.rawInputJson);
-            preferIncoming(entry->toolCall.callerType, projection.toolCall.callerType);
-            preferIncoming(entry->toolCall.callerId, projection.toolCall.callerId);
-            preferIncoming(entry->toolUseId, projection.toolUseId);
-            preferIncoming(entry->toolName, projection.toolName);
-            if (entry->toolInput.isEmpty() && !entry->toolCall.input.isEmpty())
-                entry->toolInput = entry->toolCall.input;
-            // 线路 item 若空参而 UI 已有完整 toolCall，用 UI 回填再落 ProviderRecord。
-            if (item.rawArguments.trimmed().isEmpty() && item.arguments.isEmpty()
-                && (!entry->toolCall.rawInputJson.trimmed().isEmpty()
-                    || !entry->toolCall.input.isEmpty())) {
-                item = ProviderItem::makeFunctionCall(entry->toolCall);
-                item.itemId = entryId;
-            }
-        } else if (projection.kind == ConversationMessage::Kind::ToolResult) {
-            entry->toolUseId = projection.toolUseId;
-            entry->toolName = projection.toolName;
-        }
-        if (!continuationId.isEmpty())
-            entry->providerContinuationId = continuationId;
+    ConversationMessage *entry = findById(entryId);
+    if (!entry) {
+        return false;
     }
+
+    const ConversationMessage projection =
+        conversationEntryForItem(item, entry->turnId, continuationId);
+    const QString oldToolUseId = entry->toolUseId;
+    if (entry->text.isEmpty())
+        entry->text = projection.text;
+    if (projection.imageOutput.hasUri()
+        || projection.imageOutput.hasInlineData()
+        || projection.imageOutput.blobRef.hasBlobId()) {
+        entry->imageOutput = projection.imageOutput;
+    }
+    if (item.kind == ProviderItemKind::Reasoning) {
+        // 流式路径：UI 可能已累积 reasoningContent，完成态 item 却双空。
+        // 不得用空投影覆盖已有正文/签名。
+        if (!projection.reasoningContent.trimmed().isEmpty()
+            || entry->reasoningContent.trimmed().isEmpty()) {
+            entry->reasoningContent = projection.reasoningContent;
+        }
+        if (!projection.reasoningSignature.trimmed().isEmpty()
+            || entry->reasoningSignature.trimmed().isEmpty()) {
+            entry->reasoningSignature = projection.reasoningSignature;
+        }
+        entry->reasoningRedacted = projection.reasoningRedacted || entry->reasoningRedacted;
+        entry->reasoningMustReplay =
+            projection.reasoningMustReplay || entry->reasoningMustReplay;
+        // 若合并后 UI 已可回放而 item 仍空，用 UI 回填线路 item。
+        if (!isReplayableReasoningItem(item)
+            && (entry->reasoningRedacted
+                || !entry->reasoningContent.trimmed().isEmpty()
+                || !entry->reasoningSignature.trimmed().isEmpty())) {
+            item = ProviderItem::makeReasoning(entry->reasoningContent,
+                                               entry->reasoningSignature,
+                                               entry->reasoningRedacted,
+                                               entry->reasoningMustReplay);
+            item.itemId = entryId;
+        }
+    }
+    entry->providerMustReplay = projection.providerMustReplay;
+    if (projection.kind == ConversationMessage::Kind::ToolCall) {
+        // 流式 ToolCallCompleted 可能已写入完整 input/raw；MessageCompleted 的
+        // fallback FunctionCall 若仍空参，不得覆盖（否则下一轮 arguments=""）。
+        preferIncoming(entry->toolCall.id, projection.toolCall.id);
+        preferIncoming(entry->toolCall.toolName, projection.toolCall.toolName);
+        preferIncoming(entry->toolCall.input, projection.toolCall.input);
+        preferIncomingTrimmed(entry->toolCall.rawInputJson, projection.toolCall.rawInputJson);
+        preferIncoming(entry->toolCall.callerType, projection.toolCall.callerType);
+        preferIncoming(entry->toolCall.callerId, projection.toolCall.callerId);
+        preferIncoming(entry->toolUseId, projection.toolUseId);
+        preferIncoming(entry->toolName, projection.toolName);
+        if (entry->toolInput.isEmpty() && !entry->toolCall.input.isEmpty())
+            entry->toolInput = entry->toolCall.input;
+        // 线路 item 若空参而 UI 已有完整 toolCall，用 UI 回填再落 ProviderRecord。
+        if (item.rawArguments.trimmed().isEmpty() && item.arguments.isEmpty()
+            && (!entry->toolCall.rawInputJson.trimmed().isEmpty()
+                || !entry->toolCall.input.isEmpty())) {
+            item = ProviderItem::makeFunctionCall(entry->toolCall);
+            item.itemId = entryId;
+        }
+    } else if (projection.kind == ConversationMessage::Kind::ToolResult) {
+        entry->toolUseId = projection.toolUseId;
+        entry->toolName = projection.toolName;
+    }
+    if (!continuationId.isEmpty())
+        entry->providerContinuationId = continuationId;
+
+    // toolUseId 变化时维护索引
+    if (oldToolUseId != entry->toolUseId) {
+        if (!oldToolUseId.isEmpty())
+            m_toolUseIndex.remove(oldToolUseId);
+        if (!entry->toolUseId.isEmpty()) {
+            const qsizetype pos = m_entryIndex.value(entryId, -1);
+            if (pos >= 0)
+                m_toolUseIndex.insert(entry->toolUseId, pos);
+        }
+    }
+
     // 不可回放的空推理：清掉线路记录，保留 UI。
     if (!isReplayableReasoningItem(item)) {
         clearProviderRecord(entryId);
-        return;
+        return true;
     }
-    externalizeProviderItem(item);
+    if (externalize)
+        externalizeProviderItem(item);
     if (ProviderRecord *existing = findProviderRecord(entryId)) {
         existing->item = std::move(item);
         existing->submitted = true;
@@ -886,7 +978,9 @@ void ProviderRunLedger::setProviderItemForEntry(const QString &entryId,
         record.continuationId = continuationId;
         refreshTokenEstimate(record);
         m_providerRecords.append(std::move(record));
+        indexProviderRecord(entryId, m_providerRecords.size() - 1);
     }
+    return true;
 }
 
 bool ProviderRunLedger::clearProviderRecord(const QString &entryId)
@@ -897,6 +991,9 @@ bool ProviderRunLedger::clearProviderRecord(const QString &entryId)
             m_providerRecords.removeAt(i);
             removed = true;
         }
+    }
+    if (removed) {
+        rebuildIndexes();
     }
     return removed;
 }
@@ -914,17 +1011,20 @@ bool ProviderRunLedger::removeEntry(const QString &entryId)
         if (m_providerRecords.at(i).entryId == entryId)
             m_providerRecords.removeAt(i);
     }
+    if (removed) {
+        rebuildIndexes();
+    }
     return removed;
 }
 
-const QList<ProviderItem> ProviderRunLedger::providerItems() const
+QList<ProviderItem> ProviderRunLedger::providerItems() const
 {
-    QList<ProviderItem> items;
-    items.reserve(m_providerRecords.size());
-    for (const ProviderRecord &record : m_providerRecords)
-        if (!record.compacted)
-            items.append(record.item);
-    return items;
+    return collectProviderItems(true);
+}
+
+QList<ProviderItem> ProviderRunLedger::providerItemsUnhydrated() const
+{
+    return collectProviderItems(false);
 }
 
 ConversationMessage *ProviderRunLedger::findLatestReasoningForTurn(const QString &turnId)
@@ -953,59 +1053,45 @@ const ConversationMessage *ProviderRunLedger::findLatestReasoningForTurn(const Q
 
 ProviderRunLedger::ProviderRecord *ProviderRunLedger::findProviderRecord(const QString &entryId)
 {
-    for (ProviderRecord &record : m_providerRecords)
-        if (record.entryId == entryId)
-            return &record;
-    return nullptr;
+    const qsizetype pos = m_providerIndex.value(entryId, -1);
+    return (pos >= 0 && pos < m_providerRecords.size()) ? &m_providerRecords[pos] : nullptr;
 }
 
 const ProviderRunLedger::ProviderRecord *ProviderRunLedger::findProviderRecord(
     const QString &entryId) const
 {
-    for (const ProviderRecord &record : m_providerRecords)
-        if (record.entryId == entryId)
-            return &record;
-    return nullptr;
+    const qsizetype pos = m_providerIndex.value(entryId, -1);
+    return (pos >= 0 && pos < m_providerRecords.size()) ? &m_providerRecords.at(pos) : nullptr;
 }
 
 ConversationMessage *ProviderRunLedger::findById(const QString &entryId)
 {
-    for (ConversationMessage &entry : m_entries) {
-        if (entry.id == entryId) {
-            return &entry;
-        }
-    }
-    return nullptr;
+    const qsizetype pos = m_entryIndex.value(entryId, -1);
+    return (pos >= 0 && pos < m_entries.size()) ? &m_entries[pos] : nullptr;
 }
 
 const ConversationMessage *ProviderRunLedger::findById(const QString &entryId) const
 {
-    for (const ConversationMessage &entry : m_entries) {
-        if (entry.id == entryId) {
-            return &entry;
-        }
-    }
-    return nullptr;
+    const qsizetype pos = m_entryIndex.value(entryId, -1);
+    return (pos >= 0 && pos < m_entries.size()) ? &m_entries.at(pos) : nullptr;
 }
 
 ConversationMessage *ProviderRunLedger::findToolCallByUseId(const QString &toolUseId)
 {
-    for (ConversationMessage &entry : m_entries) {
-        if (entry.kind == ConversationMessage::Kind::ToolCall
-            && entry.toolUseId == toolUseId) {
-            return &entry;
-        }
+    const qsizetype pos = m_toolUseIndex.value(toolUseId, -1);
+    if (pos >= 0 && pos < m_entries.size()
+        && m_entries.at(pos).kind == ConversationMessage::Kind::ToolCall) {
+        return &m_entries[pos];
     }
     return nullptr;
 }
 
 const ConversationMessage *ProviderRunLedger::findToolCallByUseId(const QString &toolUseId) const
 {
-    for (const ConversationMessage &entry : m_entries) {
-        if (entry.kind == ConversationMessage::Kind::ToolCall
-            && entry.toolUseId == toolUseId) {
-            return &entry;
-        }
+    const qsizetype pos = m_toolUseIndex.value(toolUseId, -1);
+    if (pos >= 0 && pos < m_entries.size()
+        && m_entries.at(pos).kind == ConversationMessage::Kind::ToolCall) {
+        return &m_entries.at(pos);
     }
     return nullptr;
 }
@@ -1023,39 +1109,39 @@ bool ProviderRunLedger::hasUnresolvedToolCalls() const
     return false;
 }
 
-void ProviderRunLedger::rollbackUncommittedTurn(const QString &turnId)
+bool ProviderRunLedger::rollbackUncommittedTurn(const QString &turnId)
 {
     if (turnId.isEmpty()) {
-        return;
+        return false;
     }
 
-    // 已有 ToolResult 的 toolUse 视为已提交，取消时保留；其余未提交条目物理抹除
+    // 先确定本回合“已配对”的 ToolCall：有对应 ToolResult 才保留。
     const QSet<QString> resolvedToolUseIds = collectResolvedToolUseIds(m_entries);
+    QSet<QString> retainedToolCallIds;
+    for (const ConversationMessage &entry : m_entries) {
+        if (entry.turnId == turnId
+            && entry.kind == ConversationMessage::Kind::ToolCall
+            && !entry.toolUseId.isEmpty()
+            && resolvedToolUseIds.contains(entry.toolUseId)) {
+            retainedToolCallIds.insert(entry.toolUseId);
+        }
+    }
+
     QSet<QString> removedIds;
     for (qsizetype i = m_entries.size() - 1; i >= 0; --i) {
         const ConversationMessage &entry = m_entries.at(i);
         if (entry.turnId != turnId) {
             continue;
         }
-
-        bool shouldRemove = false;
-        if (entry.kind == ConversationMessage::Kind::ToolCall) {
-            shouldRemove = entry.toolUseId.isEmpty()
-                           || !resolvedToolUseIds.contains(entry.toolUseId);
-        } else if (entry.kind == ConversationMessage::Kind::AssistantText
-                   || entry.kind == ConversationMessage::Kind::AssistantReasoning) {
-            shouldRemove = !entry.submittedToModel;
-        }
-        if (!shouldRemove) {
+        if (isTurnEntryCommitted(entry, retainedToolCallIds)) {
             continue;
         }
-
         removedIds.insert(entry.id);
         m_entries.removeAt(i);
     }
 
     if (removedIds.isEmpty()) {
-        return;
+        return false;
     }
 
     for (qsizetype i = m_providerRecords.size() - 1; i >= 0; --i) {
@@ -1063,35 +1149,54 @@ void ProviderRunLedger::rollbackUncommittedTurn(const QString &turnId)
             m_providerRecords.removeAt(i);
         }
     }
+    rebuildIndexes();
+    return true;
 }
 
-void ProviderRunLedger::markSubmitted(const QList<QString> &entryIds)
+bool ProviderRunLedger::markSubmitted(const QList<QString> &entryIds)
 {
+    bool changed = false;
     for (const QString &entryId : entryIds) {
         if (ConversationMessage *entry = findById(entryId)) {
-            entry->submittedToModel = true;
-        }
-        if (ProviderRecord *record = findProviderRecord(entryId))
-            record->submitted = true;
-    }
-}
-
-void ProviderRunLedger::markEntriesCompacted(const QList<QString> &entryIds)
-{
-    if (entryIds.isEmpty()) {
-        return;
-    }
-    for (const QString &entryId : entryIds) {
-        if (ConversationMessage *entry = findById(entryId)) {
-            entry->wasCompacted = true;
+            if (!entry->submittedToModel) {
+                entry->submittedToModel = true;
+                changed = true;
+            }
         }
         if (ProviderRecord *record = findProviderRecord(entryId)) {
-            record->compacted = true;
-            record->tokenEstimate = 0;
+            if (!record->submitted) {
+                record->submitted = true;
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+bool ProviderRunLedger::markEntriesCompacted(const QList<QString> &entryIds)
+{
+    if (entryIds.isEmpty()) {
+        return false;
+    }
+    bool changed = false;
+    for (const QString &entryId : entryIds) {
+        if (ConversationMessage *entry = findById(entryId)) {
+            if (!entry->wasCompacted) {
+                entry->wasCompacted = true;
+                changed = true;
+            }
+        }
+        if (ProviderRecord *record = findProviderRecord(entryId)) {
+            if (!record->compacted) {
+                record->compacted = true;
+                record->tokenEstimate = 0;
+                changed = true;
+            }
         }
     }
     // 压缩后上一轮厂商 input 反映的是压缩前占用，作下界会永久抬高估算
     m_lastProviderInputTokens = 0;
+    return changed;
 }
 
 ProviderRequestBuild ProviderRunLedger::buildRequest(const QList<ProviderToolSpecification> &tools,
@@ -1102,6 +1207,7 @@ ProviderRequestBuild ProviderRunLedger::buildRequest(const QList<ProviderToolSpe
     build.request.conversationId = conversationId;
     build.request.tools = tools;
     build.request.desiredOutput = desiredOutput;
+    QList<ProviderItem> items;
     for (const ProviderRecord &record : m_providerRecords) {
         if (record.compacted)
             continue;
@@ -1111,17 +1217,18 @@ ProviderRequestBuild ProviderRunLedger::buildRequest(const QList<ProviderToolSpe
         // 「reasoning requires content or signature」，工具轮次 step≥2 整体失败。
         if (!isReplayableReasoningItem(record.item))
             continue;
-        build.request.items.append(hydratedProviderItem(record.item));
+        items.append(record.item);
         if (!record.submitted)
             build.submittedEntryIds.append(record.entryId);
         // 默认无状态全量回放：账本可保留 continuationId 元数据，但请求不自动提升。
         // 有状态续跑（previous_response_id / previous_interaction_id）仅允许调用方显式
         // 写入 build.request.continuationId；adapter 见空则编码全部 items。
     }
+    build.request.items = hydrateItemsForRequest(std::move(items), &build.hydrateError);
     return build;
 }
 
-qint64 ProviderRunLedger::estimatedContextTokens(const qint64 requestOverheadTokens) const
+qint64 ProviderRunLedger::estimatedContextTokens(const qint64 requestOverheadTokens)
 {
     // 直接扫 providerRecords：不 buildRequest、不 hydrate blob——估算只读文本/元数据
     qint64 total = qMax<qint64>(0, requestOverheadTokens);
@@ -1178,7 +1285,143 @@ QList<ConversationMessage> ProviderRunLedger::projectMessages() const
     return messages;
 }
 
-QJsonArray ProviderRunLedger::toJson() const
+void ProviderRunLedger::mergeProviderProjection(ConversationMessage &entry,
+                                                const ProviderItem &item,
+                                                const QString &continuationId) const
+{
+    const ConversationMessage projection =
+        conversationEntryForItem(item, entry.turnId, continuationId);
+    if (entry.text.isEmpty())
+        entry.text = projection.text;
+    if (projection.imageOutput.hasUri()
+        || projection.imageOutput.hasInlineData()
+        || projection.imageOutput.blobRef.hasBlobId()) {
+        entry.imageOutput = projection.imageOutput;
+    }
+    if (item.kind == ProviderItemKind::Reasoning) {
+        if (!projection.reasoningContent.trimmed().isEmpty()
+            || entry.reasoningContent.trimmed().isEmpty()) {
+            entry.reasoningContent = projection.reasoningContent;
+        }
+        if (!projection.reasoningSignature.trimmed().isEmpty()
+            || entry.reasoningSignature.trimmed().isEmpty()) {
+            entry.reasoningSignature = projection.reasoningSignature;
+        }
+        entry.reasoningRedacted = projection.reasoningRedacted || entry.reasoningRedacted;
+        entry.reasoningMustReplay = projection.reasoningMustReplay || entry.reasoningMustReplay;
+    }
+    entry.providerMustReplay = projection.providerMustReplay;
+    if (projection.kind == ConversationMessage::Kind::ToolCall) {
+        preferIncoming(entry.toolCall.id, projection.toolCall.id);
+        preferIncoming(entry.toolCall.toolName, projection.toolCall.toolName);
+        preferIncoming(entry.toolCall.input, projection.toolCall.input);
+        preferIncomingTrimmed(entry.toolCall.rawInputJson, projection.toolCall.rawInputJson);
+        preferIncoming(entry.toolCall.callerType, projection.toolCall.callerType);
+        preferIncoming(entry.toolCall.callerId, projection.toolCall.callerId);
+        preferIncoming(entry.toolUseId, projection.toolUseId);
+        preferIncoming(entry.toolName, projection.toolName);
+        if (entry.toolInput.isEmpty() && !entry.toolCall.input.isEmpty())
+            entry.toolInput = entry.toolCall.input;
+    } else if (projection.kind == ConversationMessage::Kind::ToolResult) {
+        entry.toolUseId = projection.toolUseId;
+        entry.toolName = projection.toolName;
+    }
+    if (!continuationId.isEmpty())
+        entry.providerContinuationId = continuationId;
+}
+
+bool ProviderRunLedger::isTurnEntryCommitted(const ConversationMessage &entry,
+                                             const QSet<QString> &retainedToolCallIds) const
+{
+    switch (entry.kind) {
+    case ConversationMessage::Kind::UserText:
+    case ConversationMessage::Kind::AgentTask:
+    case ConversationMessage::Kind::SystemPrompt:
+    case ConversationMessage::Kind::SkillInvoke:
+    case ConversationMessage::Kind::SessionEvent:
+    case ConversationMessage::Kind::Summary:
+        return true;
+    case ConversationMessage::Kind::ToolCall:
+        return !entry.toolUseId.isEmpty() && retainedToolCallIds.contains(entry.toolUseId);
+    case ConversationMessage::Kind::ToolResult:
+        return retainedToolCallIds.contains(entry.toolUseId);
+    case ConversationMessage::Kind::AssistantText:
+    case ConversationMessage::Kind::AssistantReasoning:
+        return entry.submittedToModel;
+    case ConversationMessage::Kind::Error:
+        return false;
+    default:
+        return true;
+    }
+}
+
+QList<ProviderItem> ProviderRunLedger::collectProviderItems(const bool hydrate) const
+{
+    QList<ProviderItem> items;
+    items.reserve(m_providerRecords.size());
+    for (const ProviderRecord &record : m_providerRecords) {
+        if (record.compacted) {
+            continue;
+        }
+        ProviderItem item = record.item;
+        if (hydrate) {
+            QString error;
+            if (!hydrateProviderItem(item, &error)) {
+                qWarning().noquote()
+                    << QStringLiteral("ProviderRunLedger providerItems hydrate 失败：%1")
+                           .arg(error);
+            }
+        }
+        items.append(std::move(item));
+    }
+    return items;
+}
+
+QList<ProviderItem> ProviderRunLedger::hydrateItemsForRequest(QList<ProviderItem> items,
+                                                             QString *error) const
+{
+    for (ProviderItem &item : items) {
+        if (!hydrateProviderItem(item, error)) {
+            qWarning().noquote()
+                << QStringLiteral("ProviderRunLedger buildRequest hydrate 失败：%1")
+                       .arg(error ? *error : QStringLiteral("未知错误"));
+            break;
+        }
+    }
+    return items;
+}
+
+QSet<QString> ProviderRunLedger::referencedBlobIds() const
+{
+    QSet<QString> ids;
+    for (const ProviderRecord &record : m_providerRecords) {
+        const auto collect = [&ids](const QList<ProviderMessagePart> &parts) {
+            for (const ProviderMessagePart &part : parts) {
+                switch (part.kind) {
+                case ProviderPartKind::Image:
+                    if (part.image.blobRef.hasBlobId()) ids.insert(part.image.blobRef.blobId);
+                    break;
+                case ProviderPartKind::Audio:
+                    if (part.audio.blobRef.hasBlobId()) ids.insert(part.audio.blobRef.blobId);
+                    break;
+                case ProviderPartKind::Document:
+                    if (part.document.blobRef.hasBlobId()) ids.insert(part.document.blobRef.blobId);
+                    break;
+                case ProviderPartKind::Video:
+                    if (part.video.blobRef.hasBlobId()) ids.insert(part.video.blobRef.blobId);
+                    break;
+                case ProviderPartKind::Text:
+                    break;
+                }
+            }
+        };
+        collect(record.item.parts);
+        collect(record.item.outputParts);
+    }
+    return ids;
+}
+
+QJsonObject ProviderRunLedger::toJson() const
 {
     QJsonArray array;
     for (const ConversationMessage &entry : m_entries) {
@@ -1235,13 +1478,59 @@ QJsonArray ProviderRunLedger::toJson() const
         }
         array.append(object);
     }
-    return array;
+
+    QJsonObject envelope;
+    envelope.insert(QStringLiteral("schemaVersion"), 1);
+    envelope.insert(QStringLiteral("providerProtocolVersion"), kProviderProtocolVersion);
+    envelope.insert(QStringLiteral("providerProtocolRevision"), kProviderProtocolRevision);
+    envelope.insert(QStringLiteral("entries"), array);
+    return envelope;
 }
 
-void ProviderRunLedger::fromJson(const QJsonArray &entriesArray)
+bool ProviderRunLedger::fromJson(const QJsonValue &data)
 {
-    m_entries.clear();
-    m_providerRecords.clear();
+    // 兼容旧格式：裸数组按 schemaVersion=0 迁移。
+    QJsonArray entriesArray;
+    int schemaVersion = 0;
+    if (data.isArray()) {
+        entriesArray = data.toArray();
+    } else if (data.isObject()) {
+        const QJsonObject envelope = data.toObject();
+        schemaVersion = envelope.value(QStringLiteral("schemaVersion")).toInt(0);
+        const int protocolVersion =
+            envelope.value(QStringLiteral("providerProtocolVersion")).toInt(-1);
+        const int protocolRevision =
+            envelope.value(QStringLiteral("providerProtocolRevision")).toInt(-1);
+        if (schemaVersion > 1) {
+            qWarning().noquote()
+                << QStringLiteral("ProviderRunLedger 拒绝加载：schemaVersion %1 不受支持")
+                       .arg(schemaVersion);
+            return false;
+        }
+        if (protocolVersion >= 0 && protocolVersion != kProviderProtocolVersion) {
+            qWarning().noquote()
+                << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolVersion %1 不匹配 %2")
+                       .arg(protocolVersion).arg(kProviderProtocolVersion);
+            return false;
+        }
+        if (protocolRevision >= 0 && protocolRevision != kProviderProtocolRevision) {
+            qWarning().noquote()
+                << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolRevision %1 不匹配 %2")
+                       .arg(protocolRevision).arg(kProviderProtocolRevision);
+            return false;
+        }
+        entriesArray = envelope.value(QStringLiteral("entries")).toArray();
+    } else {
+        return false;
+    }
+
+    // 先解析到临时容器，成功后再替换，失败保持原状。
+    QList<ConversationMessage> newEntries;
+    QList<ProviderRecord> newRecords;
+    QHash<QString, qsizetype> newEntryIndex;
+    QHash<QString, qsizetype> newProviderIndex;
+    QHash<QString, qsizetype> newToolUseIndex;
+
     for (const QJsonValue &value : entriesArray) {
         if (!value.isObject()) {
             continue;
@@ -1298,22 +1587,56 @@ void ProviderRunLedger::fromJson(const QJsonArray &entriesArray)
         const bool refuseProviderWire =
             entry.kind == ConversationMessage::Kind::SessionEvent;
         const QString entryId = entry.id;
-        m_entries.append(std::move(entry));
         const QJsonObject providerItemObject =
             object.value(QStringLiteral("providerItem")).toObject();
+
+        ProviderRecord parsedRecord;
+        bool hasParsedRecord = false;
         if (!refuseProviderWire && !providerItemObject.isEmpty()) {
             ProviderItem item = providerItemFromJson(providerItemObject);
-            setProviderItemForEntry(
-                entryId, std::move(item),
-                object.value(QStringLiteral("providerContinuationId")).toString());
-            if (ProviderRecord *record = findProviderRecord(entryId)) {
-                record->submitted = object.value(QStringLiteral("submittedToModel")).toBool(false);
-                record->compacted = object.value(QStringLiteral("wasCompacted")).toBool(false);
-                // setProviderItem 已刷新估算；若历史条目已压缩则归零
-                if (record->compacted) {
-                    record->tokenEstimate = 0;
+            QString error;
+            if (!item.validate(&error, true, 0)) {
+                qWarning().noquote()
+                    << QStringLiteral("ProviderRunLedger 拒绝恢复非法 ProviderItem：%1")
+                           .arg(error);
+            } else {
+                // 恢复 UI 投影（imageOutput / toolCall / reasoning 等），不写盘。
+                mergeProviderProjection(
+                    entry, item,
+                    object.value(QStringLiteral("providerContinuationId")).toString());
+                parsedRecord.item = std::move(item);
+                parsedRecord.entryId = entryId;
+                parsedRecord.submitted =
+                    object.value(QStringLiteral("submittedToModel")).toBool(false);
+                parsedRecord.compacted =
+                    object.value(QStringLiteral("wasCompacted")).toBool(false);
+                parsedRecord.continuationId =
+                    object.value(QStringLiteral("providerContinuationId")).toString();
+                refreshTokenEstimate(parsedRecord);
+                if (parsedRecord.compacted) {
+                    parsedRecord.tokenEstimate = 0;
                 }
+                hasParsedRecord = true;
             }
         }
+
+        newEntries.append(std::move(entry));
+        newEntryIndex.insert(entryId, newEntries.size() - 1);
+        if (newEntries.last().kind == ConversationMessage::Kind::ToolCall
+            && !newEntries.last().toolUseId.isEmpty()) {
+            newToolUseIndex.insert(newEntries.last().toolUseId, newEntries.size() - 1);
+        }
+        if (hasParsedRecord) {
+            newRecords.append(std::move(parsedRecord));
+            newProviderIndex.insert(entryId, newRecords.size() - 1);
+        }
     }
+
+    m_entries = std::move(newEntries);
+    m_providerRecords = std::move(newRecords);
+    m_entryIndex = std::move(newEntryIndex);
+    m_providerIndex = std::move(newProviderIndex);
+    m_toolUseIndex = std::move(newToolUseIndex);
+    m_lastProviderInputTokens = 0;
+    return true;
 }

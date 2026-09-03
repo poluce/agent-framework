@@ -82,8 +82,8 @@ ctest --test-dir build --output-on-failure
 ### 5. 更新版本与 CHANGELOG
 
 - 按 SemVer 决定版本号：
-  - 破坏性变更 / 大功能 → minor（0.1.0 → 0.2.0）
-  - 纯修复 → patch（0.2.0 → 0.2.1）
+  - 破坏性变更 / 大功能 → minor（0.2.0 → 0.3.0）
+  - 纯修复 → patch（0.3.0 → 0.3.1）
 - 更新 `CHANGELOG.md`，按使用者视角分类：
 
 ```markdown

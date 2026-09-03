@@ -1233,6 +1233,10 @@ void AbstractLoop::startProviderTurnImpl(qint64 contextTokenEstimate)
     ProviderRequestBuild build = m_ledger.buildRequest(toolSpecs(),
                                                        ProviderOutputSpec::textOnly(),
                                                        m_sessionUuid);
+    if (!build.hydrateError.isEmpty()) {
+        failTurn(QStringLiteral("附件资源缺失：%1").arg(build.hydrateError));
+        return;
+    }
     // 模型短上下文：摘要链 + 最近用户醒目块等前缀（Agent 已打标签；不物化进账本）
     if (!m_modelViewPrefixTexts.isEmpty()) {
         QList<ProviderItem> prefixed;

@@ -404,7 +404,7 @@ void AgentSession::importLedger(const QJsonObject &json,
             }
             agent->applySessionSettings(rt);
         }
-        agent->loop()->ledger().fromJson(row.obj.value(QStringLiteral("ledger")).toArray());
+        agent->loop()->ledger().fromJson(row.obj.value(QStringLiteral("ledger")));
         agent->loop()->refreshContextTokenEstimate();
     }
 }

@@ -1,10 +1,23 @@
 # AgentFramework
 
-Qt 6 上的 **Agent 执行单元内核**：一轮对话、工具、账本、压缩、邮箱、编排口。包版本 0.2.0。
+Qt 6 上的 **Agent 执行单元内核**：一轮对话、工具、账本、压缩、邮箱、编排口。包版本 0.3.0。
 
 目标与边界见 [AGENTS.md](AGENTS.md)。
 
 不是 GUI/TUI，也不是 Host 协议。配方、MCP、AppPaths、组合根由宿主提供。
+
+## 0.3 变更（breaking）
+
+- `ProviderRunLedger` 对外 API 形状统一：
+  - `setProviderItemForEntry` / `rollbackUncommittedTurn` / `markSubmitted` / `markEntriesCompacted` / `fromJson` 改为返回 `bool`
+  - `toJson()` 返回版本化信封 `QJsonObject`（`schemaVersion` / `providerProtocolVersion` / `providerProtocolRevision` / `entries`）
+  - `fromJson()` 接受新信封或旧裸数组，并做版本校验 + ProviderItem 校验
+  - `providerItems()` 返回 hydrate 后的完整数据；新增 `providerItemsUnhydrated()`
+  - `estimatedContextTokens()` 改为 non-const
+- 账本内部引入索引，`findById` / `findProviderRecord` / `findToolCallByUseId` 变 O(1)
+- 回滚统一为回合事务模型：孤儿 ToolResult 和 Error 会被清理
+- 加载历史数据不再写 blob 文件；blob hydrate 失败可观测（`buildRequest().hydrateError`）
+- 新增 `referencedBlobIds()` 供宿主做全局 blob GC
 
 ## 0.2 变更（breaking）
 

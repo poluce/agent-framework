@@ -2,6 +2,39 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-09-02
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `ProviderRunLedger` 对外 API 形状统一：
+  - `setProviderItemForEntry` / `rollbackUncommittedTurn` / `markSubmitted` / `markEntriesCompacted` / `fromJson` 改为返回 `bool`
+  - `toJson()` 返回版本化信封 `QJsonObject`（`schemaVersion` / `providerProtocolVersion` / `providerProtocolRevision` / `entries`）
+  - `fromJson()` 接受新信封或旧裸数组，并做版本校验 + ProviderItem 校验
+  - `providerItems()` 返回 hydrate 后的完整数据；新增 `providerItemsUnhydrated()`
+  - `estimatedContextTokens()` 改为 non-const
+- session.json 中 ledger 字段从数组变为对象信封（旧格式仍可加载）
+
+### 🟢 新增功能
+
+- 账本内部引入索引，`findById` / `findProviderRecord` / `findToolCallByUseId` 变 O(1)
+- 新增 `referencedBlobIds()` 供宿主做全局 blob GC
+- `buildRequest()` 新增 `hydrateError`，blob 缺失可观测
+
+### 🟡 功能修改
+
+- 回滚统一为回合事务模型：孤儿 ToolResult 和 Error 会被清理
+- 加载历史数据不再写 blob 文件
+- `providerItems()` 现在返回 hydrate 后的完整数据
+
+### 🔵 修复
+
+- 账本线性查找导致长对话性能下降
+- 序列化无版本校验，不兼容数据可能静默加载
+- 加载时不校验 ProviderItem，损坏数据可能进入线路
+- blob hydrate 失败静默，请求可能带空内容
+- 回滚可能残留孤儿 ToolResult / Error
+- 加载历史数据产生写盘副作用
+
 ## [0.2.0] - 2026-09-02
 
 ### 🔴 Breaking Changes（升级前必看）

@@ -92,6 +92,11 @@ private slots:
     void emptyFunctionCallArgsMustNotOverwriteCompletedToolCall();
     void sessionEventNeverEntersProviderRequest();
     void sessionEventProviderItemDroppedOnRestore();
+    void fromJsonRejectsUnsupportedSchemaVersion();
+    void fromJsonDowngradesInvalidProviderItemToUiOnly();
+    void rollbackRemovesOrphanToolResultAndError();
+    void indexesRemainCorrectAfterRemove();
+    void buildRequestReportsHydrateError();
 };
 
 void ProviderProtocolMigrationTests::ledgerBuildsOneOrderedItemStream()
@@ -251,11 +256,13 @@ void ProviderProtocolMigrationTests::inlineMediaIsExternalizedFromLedgerJson()
 
     const QList<ProviderItem> stored = ledger.providerItems();
     QCOMPARE(stored.size(), 1);
-    QVERIFY(stored.first().parts.first().image.data.isEmpty());
+    // providerItems() 返回 hydrate 后的完整数据
+    QVERIFY(!stored.first().parts.first().image.data.isEmpty());
     QVERIFY(stored.first().parts.first().image.blobRef.hasBlobId());
 
     const QJsonObject persistedItem =
-        ledger.toJson().first().toObject().value(QStringLiteral("providerItem")).toObject();
+        ledger.toJson().value(QStringLiteral("entries")).toArray().first().toObject()
+            .value(QStringLiteral("providerItem")).toObject();
     const QJsonObject persistedImage =
         persistedItem.value(QStringLiteral("parts")).toArray().first().toObject()
             .value(QStringLiteral("image")).toObject();
@@ -654,6 +661,114 @@ void ProviderProtocolMigrationTests::sessionEventProviderItemDroppedOnRestore()
     QCOMPARE(build.request.items.size(), 1);
     QCOMPARE(build.request.items.first().kind, ProviderItemKind::UserMessage);
     QCOMPARE(build.request.items.first().itemId, QStringLiteral("user"));
+}
+
+void ProviderProtocolMigrationTests::fromJsonRejectsUnsupportedSchemaVersion()
+{
+    ProviderRunLedger ledger;
+    ConversationMessage user;
+    user.id = QStringLiteral("user");
+    user.kind = ConversationMessage::Kind::UserText;
+    user.text = QStringLiteral("hi");
+    ledger.appendUiIngress(user);
+
+    QJsonObject envelope;
+    envelope.insert(QStringLiteral("schemaVersion"), 2);
+    envelope.insert(QStringLiteral("entries"), QJsonArray{});
+    QVERIFY(!ledger.fromJson(envelope));
+    QCOMPARE(ledger.entries().size(), 1);
+    QVERIFY(ledger.findById(QStringLiteral("user")));
+}
+
+void ProviderProtocolMigrationTests::fromJsonDowngradesInvalidProviderItemToUiOnly()
+{
+    ProviderRunLedger ledger;
+    QJsonObject badItem;
+    badItem.insert(QStringLiteral("kind"), 999);
+    badItem.insert(QStringLiteral("itemId"), QStringLiteral("bad"));
+    const QJsonObject entryJson =
+        makeLedgerEntryJson(QStringLiteral("bad"), QStringLiteral("user_text"),
+                            QStringLiteral("hello"), true, badItem);
+    QVERIFY(ledger.fromJson(QJsonArray{entryJson}));
+    QCOMPARE(ledger.entries().size(), 1);
+    QVERIFY(ledger.providerItems().isEmpty());
+    QVERIFY(ledger.buildRequest({}).request.items.isEmpty());
+}
+
+void ProviderProtocolMigrationTests::rollbackRemovesOrphanToolResultAndError()
+{
+    ProviderRunLedger ledger;
+    ConversationMessage user;
+    user.id = QStringLiteral("user");
+    user.kind = ConversationMessage::Kind::UserText;
+    user.text = QStringLiteral("go");
+    user.turnId = QStringLiteral("t1");
+    user.submittedToModel = true;
+    ledger.appendUiIngress(user);
+
+    ConversationMessage orphanResult;
+    orphanResult.id = QStringLiteral("orphan-result");
+    orphanResult.kind = ConversationMessage::Kind::ToolResult;
+    orphanResult.toolUseId = QStringLiteral("no-call");
+    orphanResult.turnId = QStringLiteral("t1");
+    ledger.appendUiIngress(orphanResult);
+
+    ConversationMessage error;
+    error.id = QStringLiteral("error");
+    error.kind = ConversationMessage::Kind::Error;
+    error.text = QStringLiteral("boom");
+    error.turnId = QStringLiteral("t1");
+    ledger.appendUiIngress(error);
+
+    QVERIFY(ledger.rollbackUncommittedTurn(QStringLiteral("t1")));
+    QVERIFY(!ledger.findById(QStringLiteral("orphan-result")));
+    QVERIFY(!ledger.findById(QStringLiteral("error")));
+    QVERIFY(ledger.findById(QStringLiteral("user")));
+}
+
+void ProviderProtocolMigrationTests::indexesRemainCorrectAfterRemove()
+{
+    ProviderRunLedger ledger;
+    ConversationMessage user;
+    user.id = QStringLiteral("u");
+    user.kind = ConversationMessage::Kind::UserText;
+    user.text = QStringLiteral("hi");
+    ledger.appendUiIngress(user);
+
+    ToolCall call;
+    call.id = QStringLiteral("c1");
+    call.toolName = QStringLiteral("read_file");
+    call.rawInputJson = QStringLiteral("{}");
+    ConversationMessage tool;
+    tool.id = QStringLiteral("t");
+    tool.kind = ConversationMessage::Kind::ToolCall;
+    tool.toolCall = call;
+    tool.toolUseId = call.id;
+    tool.toolName = call.toolName;
+    ledger.appendUiIngress(tool);
+
+    QVERIFY(ledger.findById(QStringLiteral("u")));
+    QVERIFY(ledger.findToolCallByUseId(QStringLiteral("c1")));
+    QVERIFY(ledger.removeEntry(QStringLiteral("u")));
+    QVERIFY(!ledger.findById(QStringLiteral("u")));
+    QVERIFY(ledger.findById(QStringLiteral("t")));
+    QVERIFY(ledger.findToolCallByUseId(QStringLiteral("c1")));
+}
+
+void ProviderProtocolMigrationTests::buildRequestReportsHydrateError()
+{
+    ProviderRunLedger ledger;
+    ProviderImageAsset image;
+    image.blobRef.blobId = QStringLiteral("missing-blob");
+    image.blobRef.contentHash = QStringLiteral("sha256:0000");
+    image.blobRef.byteSize = 4;
+    image.blobRef.scheme = ProviderUriScheme::Blob;
+    ProviderItem item = ProviderItem::makeUserMessage(
+        {ProviderMessagePart::makeImage(image)});
+    ledger.appendProviderItem(item);
+
+    const ProviderRequestBuild build = ledger.buildRequest({});
+    QVERIFY(!build.hydrateError.isEmpty());
 }
 
 QTEST_MAIN(ProviderProtocolMigrationTests)
