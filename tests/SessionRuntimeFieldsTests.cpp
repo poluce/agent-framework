@@ -7,7 +7,7 @@
 #include <QtTest>
 
 /**
- * 0.3 执行配置表冻结：增删改字段须同步本名单与 SessionRuntime.fields.h。
+ * 0.4 执行配置表冻结：增删改字段须同步本名单与 SessionRuntime.fields.h。
  * 只链公开面，安装包路径也可跑。
  */
 class SessionRuntimeFieldsTests final : public QObject

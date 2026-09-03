@@ -2,7 +2,7 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.4.0] - 2026-09-03
 
 ### 🔴 Breaking Changes（升级前必看）
 
@@ -15,6 +15,16 @@
 - 移除历史兼容（#9 #10）：
   - `AgentSession::importLedger` 不再识别旧键 `isLeader`，只认 `isPrimary`
   - `ProviderRunLedger::fromJson` 只接受版本化信封（`schemaVersion=1`），裸数组旧格式直接拒绝
+
+### 🟡 功能修改
+
+- 目录结构调整：`SessionRuntime`/`AgentMode`/`CompactConfig` 下沉 `shared/config`，`models/`+`ir/` 合并为 `types/`，`providers/core` 拆出 `transport/`，工具目录统一小写（`builtin`/`session`）
+- 模块解耦：`tools` 不再为 `AgentMode` 依赖 `agent`
+
+### 🔵 修复
+
+- 移除 `isLeader` 旧键兼容（#9）
+- 移除裸数组旧格式兼容（#10）
 
 ## [0.3.0] - 2026-09-02
 
