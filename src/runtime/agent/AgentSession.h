@@ -7,9 +7,9 @@
 
 #include "AbstractOrchestration.h"
 #include "Agent.h"
-#include "ir/CoreEvent.h"
-#include "ir/CoreEventChannel.h"
-#include "SessionRuntime.h"
+#include "types/CoreEvent.h"
+#include "types/CoreEventChannel.h"
+#include "config/SessionRuntime.h"
 #include <functional>
 #include <optional>
 #include <memory>

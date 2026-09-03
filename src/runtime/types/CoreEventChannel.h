@@ -8,7 +8,7 @@
  * 内部 Event 分发用的 handler 类型（Event + EventContext + SubmissionId）。
  */
 
-#include "ir/CoreEvent.h"
+#include "CoreEvent.h"
 
 #include <functional>
 

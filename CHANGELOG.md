@@ -2,6 +2,17 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 🔴 Breaking Changes（升级前必看）
+
+- 目录结构调整，公开头路径变化：
+  - `agent/SessionRuntime.h` → `config/SessionRuntime.h`
+  - `agent/AgentMode.h` → `config/AgentMode.h`
+  - `agent/compact/CompactConfig.h` → `config/CompactConfig.h`
+  - `models/ConversationMessage.h` → `types/ConversationMessage.h`
+  - `ir/CoreEvent.h` / `ir/CoreEventChannel.h` → `types/CoreEvent.h` / `types/CoreEventChannel.h`
+
 ## [0.3.0] - 2026-09-02
 
 ### 🔴 Breaking Changes（升级前必看）

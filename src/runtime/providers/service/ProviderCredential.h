@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ir/CoreEvent.h"
+#include "types/CoreEvent.h"
 
 #include <QJsonObject>
 #include <QList>

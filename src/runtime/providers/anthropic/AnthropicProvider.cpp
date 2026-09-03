@@ -1,6 +1,6 @@
 #include "AnthropicProvider.h"
 
-#include "providers/core/HttpSseChannel.h"
+#include "providers/transport/HttpSseChannel.h"
 #include "providers/core/ProviderRetryPolicy.h"
 
 #include <QJsonArray>

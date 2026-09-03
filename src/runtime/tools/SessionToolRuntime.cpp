@@ -1,6 +1,6 @@
 #include "SessionToolRuntime.h"
-#include "SessionTools/AgentTodoWriteTool.h"
-#include "SessionTools/ConfigTool.h"
+#include "session/AgentTodoWriteTool.h"
+#include "session/ConfigTool.h"
 #include "agent/AgentSession.h"
 #include "agent/Agent.h"
 #include "BuiltinToolRuntime.h"

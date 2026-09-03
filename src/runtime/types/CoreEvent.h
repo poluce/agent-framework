@@ -1,6 +1,6 @@
 #pragma once
 
-#include "models/ConversationMessage.h"
+#include "ConversationMessage.h"
 #include "tools/ToolTypes.h"
 
 #include <QJsonObject>

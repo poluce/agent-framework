@@ -190,7 +190,8 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/runtime/agent/AgentSession.h` | 单元表 + `AgentSessionConfig` |
 | `src/runtime/agent/OrchestrationRegistry.*` | 按 id 创建配方 |
 | `src/runtime/agent/AgentModePolicy.h` | 模式策略口（具体策略由宿主注入） |
-| `src/shared/config/SessionRuntime.fields.h` | 执行配置字段唯一源 |
+| `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
+| `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
 | `examples/minimal/` | 仓外最小宿主：假 Provider 跑一轮 |
 | `tests/` | 公开面测试 + 本树内核私有头测试 |
 

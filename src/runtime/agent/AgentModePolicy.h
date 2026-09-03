@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AgentMode.h"
+#include "config/AgentMode.h"
 #include "tools/ToolTypes.h"
 
 #include <optional>

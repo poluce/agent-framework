@@ -2,7 +2,7 @@
 
 #include "agent/compact/CompactEngine.h"
 #include "agent/compact/SummaryJobQueue.h"
-#include "models/ConversationMessage.h"
+#include "types/ConversationMessage.h"
 #include "providers/core/AbstractProvider.h"
 #include "providers/service/ProviderCredential.h"
 

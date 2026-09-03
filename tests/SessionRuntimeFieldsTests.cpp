@@ -1,5 +1,5 @@
-#include "agent/AgentMode.h"
-#include "agent/SessionRuntime.h"
+#include "config/AgentMode.h"
+#include "config/SessionRuntime.h"
 
 #include <QJsonObject>
 #include <QMetaObject>

@@ -1,10 +1,10 @@
 #include "AgentSession.h"
 #include "AbstractOrchestration.h"
 #include "Agent.h"
-#include "agent/SessionRuntime.h"
+#include "config/SessionRuntime.h"
 
 #include "logging/LogManager.h"
-#include "models/ConversationMessage.h"
+#include "types/ConversationMessage.h"
 #include "tools/AbstractToolSource.h"
 #include "tools/ToolCoordinator.h"
 #include "tools/WriteCoordinator.h"

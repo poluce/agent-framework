@@ -1,12 +1,12 @@
 #include "tools/BuiltinToolRuntime.h"
-#include "tools/BuiltinTools/GlobTool.h"
-#include "tools/BuiltinTools/ReadFileTool.h"
-#include "tools/BuiltinTools/GrepTool.h"
-#include "tools/BuiltinTools/helpers/FileTypeFilter.h"
-#include "tools/BuiltinTools/helpers/GlobBraceExpansion.h"
-#include "tools/BuiltinTools/helpers/WriteGuardHelper.h"
-#include "tools/BuiltinTools/helpers/TextEncoding.h"
-#include "tools/BuiltinTools/helpers/WorkspaceHelper.h"
+#include "tools/builtin/GlobTool.h"
+#include "tools/builtin/ReadFileTool.h"
+#include "tools/builtin/GrepTool.h"
+#include "tools/builtin/helpers/FileTypeFilter.h"
+#include "tools/builtin/helpers/GlobBraceExpansion.h"
+#include "tools/builtin/helpers/WriteGuardHelper.h"
+#include "tools/builtin/helpers/TextEncoding.h"
+#include "tools/builtin/helpers/WorkspaceHelper.h"
 
 #include <QtTest/QtTest>
 

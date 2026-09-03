@@ -3,8 +3,8 @@
 #include "agent/AbstractOrchestration.h"
 #include "agent/Agent.h"
 #include "agent/AgentSession.h" // writeCoordinator() 需要完整类型
-#include "tools/BuiltinTools/AskQuestionTool.h"
-#include "tools/BuiltinTools/helpers/WorkspaceHelper.h" // normalizedPath（跨 Agent 广播 key 归一）
+#include "tools/builtin/AskQuestionTool.h"
+#include "tools/builtin/helpers/WorkspaceHelper.h" // normalizedPath（跨 Agent 广播 key 归一）
 #include "providers/service/ProviderService.h"
 #include "providers/service/ModelContextMetaStore.h"
 #include "config/SystemPromptBuilder.h"

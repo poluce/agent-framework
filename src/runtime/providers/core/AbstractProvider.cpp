@@ -1,6 +1,6 @@
 #include "AbstractProvider.h"
 
-#include "HttpSseChannel.h"
+#include "providers/transport/HttpSseChannel.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>

@@ -6,6 +6,14 @@ Qt 6 上的 **Agent 执行单元内核**：一轮对话、工具、账本、压�
 
 不是 GUI/TUI，也不是 Host 协议。配方、MCP、AppPaths、组合根由宿主提供。
 
+## Unreleased 目录调整（breaking）
+
+- `agent/SessionRuntime.h` → `config/SessionRuntime.h`
+- `agent/AgentMode.h` → `config/AgentMode.h`
+- `agent/compact/CompactConfig.h` → `config/CompactConfig.h`
+- `models/ConversationMessage.h` → `types/ConversationMessage.h`
+- `ir/CoreEvent.h` / `ir/CoreEventChannel.h` → `types/CoreEvent.h` / `types/CoreEventChannel.h`
+
 ## 0.3 变更（breaking）
 
 - `ProviderRunLedger` 对外 API 形状统一：

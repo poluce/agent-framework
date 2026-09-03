@@ -36,14 +36,18 @@ foreach(_rel IN ITEMS
     agent/AgentModePolicy.h
     agent/OrchestrationRegistry.h
     agent/AbstractLoop.h
-    agent/SessionRuntime.h
     tools/AbstractToolSource.h
     tools/ToolTypes.h
     logging/LogManager.h
+    config/SessionRuntime.h
     config/SessionRuntime.fields.h
+    config/AgentMode.h
+    config/CompactConfig.h
     config/ModelTokenDefaults.h
     config/ProcessSafety.h
-    ir/CoreEvent.h
+    types/ConversationMessage.h
+    types/CoreEvent.h
+    types/CoreEventChannel.h
     providers/core/AbstractProvider.h
     providers/service/ProviderCredential.h
     providers/service/ProviderService.h
@@ -79,9 +83,9 @@ foreach(_rel IN ITEMS
     host/HostBus.h
     host/HostTypes/HostCommand.h
     providers/deepseek/DeepSeekProvider.h
-    providers/core/HttpSseChannel.h
-    tools/BuiltinTools/ReadFileTool.h
-    tools/SessionTools/ConfigTool.h
+    providers/transport/HttpSseChannel.h
+    tools/builtin/ReadFileTool.h
+    tools/session/ConfigTool.h
     agent/compact/CompactToolPair.h)
     if(EXISTS "${_inc}/${_rel}")
         message(FATAL_ERROR "product/internal header leaked into framework install: ${_rel}")
