@@ -301,12 +301,14 @@ void ProviderProtocolMigrationTests::requestValidationEnforcesProtocolInvariants
 void ProviderProtocolMigrationTests::legacyUiEntryDoesNotBecomeProtocolHistory()
 {
     ProviderRunLedger ledger;
-    ledger.fromJson(QJsonArray{QJsonObject{
-        {QStringLiteral("id"), QStringLiteral("legacy-user")},
-        {QStringLiteral("kind"), QStringLiteral("user_text")},
-        {QStringLiteral("status"), QStringLiteral("completed")},
-        {QStringLiteral("text"), QStringLiteral("old display-only text")},
-        {QStringLiteral("submittedToModel"), true}}});
+    ledger.fromJson(QJsonObject{
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("entries"), QJsonArray{QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("legacy-user")},
+            {QStringLiteral("kind"), QStringLiteral("user_text")},
+            {QStringLiteral("status"), QStringLiteral("completed")},
+            {QStringLiteral("text"), QStringLiteral("old display-only text")},
+            {QStringLiteral("submittedToModel"), true}}}}});
 
     QCOMPARE(ledger.entries().size(), 1);
     QVERIFY(ledger.providerItems().isEmpty());
@@ -647,18 +649,20 @@ void ProviderProtocolMigrationTests::sessionEventProviderItemDroppedOnRestore()
     const QString bgText =
         QStringLiteral("后台任务 bg-1 已结束，可用 agent_status 查看状态。");
     ProviderRunLedger ledger;
-    ledger.fromJson(QJsonArray{
-        makeLedgerEntryJson(QStringLiteral("user"),
-                            QStringLiteral("user_text"),
-                            QStringLiteral("hi"),
-                            true,
-                            makeTextProviderItem(QStringLiteral("user"), QStringLiteral("hi"))),
-        makeLedgerEntryJson(QStringLiteral("bg-done"),
-                            QStringLiteral("session_event"),
-                            bgText,
-                            false,
-                            makeTextProviderItem(QStringLiteral("bg-done"), bgText)),
-    });
+    ledger.fromJson(QJsonObject{
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("entries"), QJsonArray{
+            makeLedgerEntryJson(QStringLiteral("user"),
+                                QStringLiteral("user_text"),
+                                QStringLiteral("hi"),
+                                true,
+                                makeTextProviderItem(QStringLiteral("user"), QStringLiteral("hi"))),
+            makeLedgerEntryJson(QStringLiteral("bg-done"),
+                                QStringLiteral("session_event"),
+                                bgText,
+                                false,
+                                makeTextProviderItem(QStringLiteral("bg-done"), bgText)),
+        }}});
 
     QCOMPARE(ledger.entries().size(), 2);
     QVERIFY(ledger.findById(QStringLiteral("bg-done")));
@@ -683,6 +687,11 @@ void ProviderProtocolMigrationTests::fromJsonRejectsUnsupportedSchemaVersion()
     QVERIFY(!ledger.fromJson(envelope));
     QCOMPARE(ledger.entries().size(), 1);
     QVERIFY(ledger.findById(QStringLiteral("user")));
+
+    // 裸数组旧格式直接拒绝
+    QVERIFY(!ledger.fromJson(QJsonArray{}));
+    QCOMPARE(ledger.entries().size(), 1);
+    QVERIFY(ledger.findById(QStringLiteral("user")));
 }
 
 void ProviderProtocolMigrationTests::fromJsonDowngradesInvalidProviderItemToUiOnly()
@@ -694,7 +703,9 @@ void ProviderProtocolMigrationTests::fromJsonDowngradesInvalidProviderItemToUiOn
     const QJsonObject entryJson =
         makeLedgerEntryJson(QStringLiteral("bad"), QStringLiteral("user_text"),
                             QStringLiteral("hello"), true, badItem);
-    QVERIFY(ledger.fromJson(QJsonArray{entryJson}));
+    QVERIFY(ledger.fromJson(QJsonObject{
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("entries"), QJsonArray{entryJson}}}));
     QCOMPARE(ledger.entries().size(), 1);
     QVERIFY(ledger.providerItems().isEmpty());
     QVERIFY(ledger.buildRequest({}).request.items.isEmpty());

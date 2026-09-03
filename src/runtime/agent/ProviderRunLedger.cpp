@@ -1487,40 +1487,37 @@ QJsonObject ProviderRunLedger::toJson() const
 
 bool ProviderRunLedger::fromJson(const QJsonValue &data)
 {
-    // 兼容旧格式：裸数组按 schemaVersion=0 迁移。
-    QJsonArray entriesArray;
-    int schemaVersion = 0;
-    if (data.isArray()) {
-        entriesArray = data.toArray();
-    } else if (data.isObject()) {
-        const QJsonObject envelope = data.toObject();
-        schemaVersion = envelope.value(QStringLiteral("schemaVersion")).toInt(0);
-        const int protocolVersion =
-            envelope.value(QStringLiteral("providerProtocolVersion")).toInt(-1);
-        const int protocolRevision =
-            envelope.value(QStringLiteral("providerProtocolRevision")).toInt(-1);
-        if (schemaVersion > 1) {
-            qWarning().noquote()
-                << QStringLiteral("ProviderRunLedger 拒绝加载：schemaVersion %1 不受支持")
-                       .arg(schemaVersion);
-            return false;
-        }
-        if (protocolVersion >= 0 && protocolVersion != kProviderProtocolVersion) {
-            qWarning().noquote()
-                << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolVersion %1 不匹配 %2")
-                       .arg(protocolVersion).arg(kProviderProtocolVersion);
-            return false;
-        }
-        if (protocolRevision >= 0 && protocolRevision != kProviderProtocolRevision) {
-            qWarning().noquote()
-                << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolRevision %1 不匹配 %2")
-                       .arg(protocolRevision).arg(kProviderProtocolRevision);
-            return false;
-        }
-        entriesArray = envelope.value(QStringLiteral("entries")).toArray();
-    } else {
+    // 只接受版本化信封（schemaVersion=1）；裸数组等旧格式直接拒绝。
+    if (!data.isObject()) {
+        qWarning().noquote()
+            << QStringLiteral("ProviderRunLedger 拒绝加载：仅支持版本化信封对象");
         return false;
     }
+    const QJsonObject envelope = data.toObject();
+    const int schemaVersion = envelope.value(QStringLiteral("schemaVersion")).toInt(0);
+    if (schemaVersion != 1) {
+        qWarning().noquote()
+            << QStringLiteral("ProviderRunLedger 拒绝加载：schemaVersion %1 不受支持")
+                   .arg(schemaVersion);
+        return false;
+    }
+    const int protocolVersion =
+        envelope.value(QStringLiteral("providerProtocolVersion")).toInt(-1);
+    const int protocolRevision =
+        envelope.value(QStringLiteral("providerProtocolRevision")).toInt(-1);
+    if (protocolVersion >= 0 && protocolVersion != kProviderProtocolVersion) {
+        qWarning().noquote()
+            << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolVersion %1 不匹配 %2")
+                   .arg(protocolVersion).arg(kProviderProtocolVersion);
+        return false;
+    }
+    if (protocolRevision >= 0 && protocolRevision != kProviderProtocolRevision) {
+        qWarning().noquote()
+            << QStringLiteral("ProviderRunLedger 拒绝加载：providerProtocolRevision %1 不匹配 %2")
+                   .arg(protocolRevision).arg(kProviderProtocolRevision);
+        return false;
+    }
+    const QJsonArray entriesArray = envelope.value(QStringLiteral("entries")).toArray();
 
     // 先解析到临时容器，成功后再替换，失败保持原状。
     QList<ConversationMessage> newEntries;

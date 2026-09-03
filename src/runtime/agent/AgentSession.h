@@ -122,7 +122,7 @@ public:
     QJsonObject exportLedger() const;
     /**
      * 把导出的账本 JSON 灌进本会话：缺失单元会 insertUnit。
-     * 主单元优先插入（键 isPrimary；兼容旧键 isLeader）；无标记则数组第一项。
+     * 主单元优先插入（键 isPrimary）；无标记则数组第一项。
      * runtime 恢复 + ledger fromJson。与 /resume 恢复语义一致。
      * @param workingDirectoryOverride 非空时覆盖各 agent 的 workingDirectory
      *        （TUI FromLaunchCwd 锁定启动 cwd，不从 history 恢复）

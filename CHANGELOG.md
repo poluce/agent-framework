@@ -12,6 +12,9 @@
   - `agent/compact/CompactConfig.h` → `config/CompactConfig.h`
   - `models/ConversationMessage.h` → `types/ConversationMessage.h`
   - `ir/CoreEvent.h` / `ir/CoreEventChannel.h` → `types/CoreEvent.h` / `types/CoreEventChannel.h`
+- 移除历史兼容（#9 #10）：
+  - `AgentSession::importLedger` 不再识别旧键 `isLeader`，只认 `isPrimary`
+  - `ProviderRunLedger::fromJson` 只接受版本化信封（`schemaVersion=1`），裸数组旧格式直接拒绝
 
 ## [0.3.0] - 2026-09-02
 

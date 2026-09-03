@@ -24,9 +24,6 @@ bool jsonAgentIsPrimary(const QJsonObject &agentObj, const bool fallback)
     if (agentObj.contains(QStringLiteral("isPrimary"))) {
         return agentObj.value(QStringLiteral("isPrimary")).toBool();
     }
-    if (agentObj.contains(QStringLiteral("isLeader"))) {
-        return agentObj.value(QStringLiteral("isLeader")).toBool();
-    }
     return fallback;
 }
 
