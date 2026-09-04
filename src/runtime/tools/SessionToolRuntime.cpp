@@ -1,11 +1,10 @@
 #include "SessionToolRuntime.h"
 #include "session/AgentTodoWriteTool.h"
 #include "session/ConfigTool.h"
-#include "agent/AgentSession.h"
-#include "agent/Agent.h"
+#include "SessionToolContext.h"
 #include "BuiltinToolRuntime.h"
 
-SessionToolRuntime::SessionToolRuntime(AgentSession *session, QObject *parent)
+SessionToolRuntime::SessionToolRuntime(AbstractSession *session, QObject *parent)
     : QObject(parent)
     , m_session(session)
 {
@@ -37,7 +36,7 @@ void SessionToolRuntime::handleToolCall(const QString &agentId, const ToolCall &
                                          const QString &workingDirectory,
                                          Completion completion)
 {
-    Agent *caller = m_session->findById(agentId);
+    AbstractUnit *caller = m_session ? m_session->findUnit(agentId) : nullptr;
     if (!caller) {
         completion(BuiltinToolRuntime::makeErrorResult(call, QStringLiteral("Agent 不存在。")));
         return;
@@ -62,10 +61,12 @@ void SessionToolRuntime::handleToolCall(const QString &agentId, const ToolCall &
         completion(std::move(result));
     };
 
-    if (tool->tryExecuteAsync(caller, call, workingDirectory, finish)) {
+    // ctx 只在本次调用期间有效；异步工具请捕获 ctx->session()/ctx->caller()。
+    SessionToolContext ctx(m_session, caller);
+    if (tool->tryExecuteAsync(&ctx, call, workingDirectory, finish)) {
         return;
     }
 
-    ToolResult result = tool->execute(caller, call, workingDirectory);
+    ToolResult result = tool->execute(&ctx, call, workingDirectory);
     finish(std::move(result));
 }

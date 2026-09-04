@@ -17,8 +17,7 @@
 #include <memory>
 #include <optional>
 
-class Agent;
-class AgentSession;
+class AbstractSession;
 
 class RunCommandTool : public QObject, public AbstractBuiltinTool
 {
@@ -42,7 +41,7 @@ public:
     static QString stripAnsi(QString text);
 
     /// session 仅在需要后台任务通知时传入，前台执行可传 nullptr
-    explicit RunCommandTool(QObject *parent = nullptr, AgentSession *session = nullptr);
+    explicit RunCommandTool(QObject *parent = nullptr, AbstractSession *session = nullptr);
     ~RunCommandTool() override;
 
     // ---- AbstractBuiltinTool 接口 ----
@@ -67,7 +66,7 @@ public:
     [[nodiscard]] QString defaultShell() const;
     [[nodiscard]] QStringList availableShells() const;
     void setLogContext(const AgentLogContext &logContext);
-    void setSession(AgentSession *session) { m_session = session; }
+    void setSession(AbstractSession *session) { m_session = session; }
 
     // ---- 统一入口 (前台/后台自动分发) ----
     void executeCommand(const QString &agentId,
@@ -115,7 +114,7 @@ private:
     bool m_cancelRequested = false;
 
     // 后台状态
-    AgentSession *m_session = nullptr;
+    AbstractSession *m_session = nullptr;
     QHash<QString, BackgroundTask> m_backgroundTasks;
     int m_nextBackgroundTaskIndex = 1;
 

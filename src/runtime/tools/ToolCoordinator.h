@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ToolTypes.h"
+#include "AbstractSession.h"
 #include "config/AgentMode.h"
 #include "logging/LogManager.h"
 
@@ -15,10 +16,8 @@
 #include "SessionToolRuntime.h"
 
 class AbstractBuiltinTool;
-class AbstractOrchestration;
 class AbstractToolSource;
-class Agent;
-class AgentSession;
+class AbstractUnit;
 class BuiltinToolRuntime;
 
 // ====================================================================
@@ -51,7 +50,7 @@ class ToolCoordinator : public QObject
 public:
     using Completion = std::function<void(ToolResult)>;
 
-    explicit ToolCoordinator(AgentSession *session,
+    explicit ToolCoordinator(AbstractSession *session,
                              AbstractToolSource *externalSource = nullptr,
                              QObject *parent = nullptr);
     ~ToolCoordinator() override;
@@ -76,7 +75,7 @@ public:
 
     BuiltinToolRegistry *registry() { return &m_registry; }
     SessionToolRuntime *sessionRuntime() const { return m_sessionRuntime.get(); }
-    AgentSession *session() const { return m_session; }
+    AbstractSession *session() const { return m_session; }
 
 signals:
     void toolsUpdated();
@@ -84,9 +83,9 @@ signals:
 private:
     [[nodiscard]] QList<AbstractToolSource *> sources() const;
     [[nodiscard]] AbstractToolSource *sourceOwning(const QString &toolName) const;
-    [[nodiscard]] QList<ToolSpec> collectSpecs(AbstractOrchestration *orch, Agent *agent) const;
+    [[nodiscard]] QList<ToolSpec> collectSpecs(AbstractSession *session, AbstractUnit *unit) const;
 
-    AgentSession *m_session;
+    AbstractSession *m_session;
     BuiltinToolRegistry m_registry;
     std::unique_ptr<SessionToolRuntime> m_sessionRuntime;
     AbstractToolSource *m_builtinSource = nullptr;

@@ -172,6 +172,18 @@ void AgentSession::setSessionWorkingDirectory(const QString &workingDirectory)
     setRuntimeField(QStringLiteral("workingDirectory"), workingDirectory);
 }
 
+QString AgentSession::userCustomPrompt() const
+{
+    return m_config.promptBuilder ? m_config.promptBuilder->userCustomPrompt() : QString();
+}
+
+void AgentSession::setUserCustomPrompt(const QString &text)
+{
+    if (m_config.promptBuilder) {
+        m_config.promptBuilder->setUserCustomPrompt(text);
+    }
+}
+
 // ── 会话标识 ──
 
 QString AgentSession::sessionId() const { return m_sessionId; }

@@ -4,9 +4,9 @@
 
 ## 耦合类
 
-### [ ] 1. `providers ↔ types` 依赖环（模块级环）
+### [x] 1. `providers ↔ types` 依赖环（模块级环）
 
-**状态**：待办（未开始）
+**状态**：已解决（2026-09-04，`refactor/decouple-modules`）
 
 **问题**：`providers` 与 `types` 互相依赖，形成模块级环：
 
@@ -17,29 +17,28 @@ providers/service/ProviderCredential.h
               └── providers/ProviderTypes/ProviderCommon.h
 ```
 
-**根因**：`ConversationMessage::imageOutput` 使用了 `ProviderImageAsset`（定义在 `providers/ProviderTypes/ProviderCommon.h`），导致 `types` 反向依赖 `providers`。
+**根因（修正）**：环有两条边，实际拆的是最小的一条：
 
-**建议方向**：
+- 边 A（`types → providers`）：`ConversationMessage::imageOutput` 使用 `ProviderImageAsset`——稳定且有意义的依赖（会话记录携带协议资产），**保留**
+- 边 B（`providers → types`）：`ProviderCredential.h` include `CoreEvent.h` 仅为 `core_ir::ApiKeyUpdateMode` 一个枚举——意外依赖，**拆除**
 
-- 把资产类型（`ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 等）从 `providers/ProviderTypes` 下沉到更低层（`shared/` 或 `types/`）
-- 下沉后依赖方向变为：`shared → tools → providers → types`，环消除
-- `providers` 恢复为叶子模块
+**修法**：把 `ApiKeyUpdateMode` 从 `types/CoreEvent.h` 挪进 `providers/service/ProviderCredential.h`（随使用方走），删除 `ProviderCredential.h` 对 `types/CoreEvent.h` 的 include。环消除，资产类型留在协议层不动。
 
 **影响面**：
 
-- `ProviderCommon.h` 拆分，涉及 `ProviderItem` / `ConversationMessage` / `ProviderRunLedger` 的 include
-- 公开头路径可能变化（breaking）
-- 需要同步更新测试与文档
+- `ApiKeyUpdateMode` 公开路径变化（`core_ir::ApiKeyUpdateMode` → `ApiKeyUpdateMode`，breaking）
+- 涉及 `CoreEvent.h` / `ProviderCredential.h` / `ProviderCredential.cpp`
+- 测试与文档已同步
 
-**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。
+**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。原建议方向（资产下沉 `types/`）因拆协议层代价大而放弃，改为拆最小边。
 
 ---
 
-### [ ] 2. `tools → agent` 依赖（工具层反向依赖执行单元）
+### [x] 2. `tools → agent` 依赖（工具层反向依赖执行单元）
 
-**状态**：待办（未开始）
+**状态**：已解决（2026-09-04，`refactor/decouple-modules`）
 
-**问题**：`tools` 模块反向依赖 `agent` 模块：
+**问题**：`tools` 模块反向依赖 `agent` 模块（实为模块级环：`agent` 也正向依赖 `tools`）：
 
 ```
 tools/ToolCoordinator.cpp        → agent/AbstractOrchestration.h、agent/Agent.h、agent/AgentSession.h
@@ -49,20 +48,23 @@ tools/session/AgentTodoWriteTool.h → agent/Agent.h
 tools/builtin/RunCommandTool.cpp → agent/Agent.h、agent/AgentSession.h
 ```
 
-**根因**：工具运行时需要访问会话/执行单元（拿配置、写 todo、广播路径等），直接依赖了具体类。
+**根因**：工具运行时需要访问会话/执行单元（拿配置、写 todo、广播路径等），直接依赖了具体类；`ConfigTool` 甚至用 `qobject_cast<AgentSession*>(caller->parent())` 隐式约定取会话。
 
-**建议方向**：
+**修法**：消费方定义窄接口，agent 侧实现：
 
-- 引入接口层（如 `AbstractSession` / `AbstractUnit`），`tools` 只依赖接口，不依赖 `agent` 具体类
-- 或把工具需要的会话能力收敛为窄接口（如 `SessionToolContext`），由 `agent` 侧实现注入
+- 新增 `tools/AbstractUnit.h`（agentId / todos / setTodos / appendSessionEvent）与 `tools/AbstractSession.h`（findUnit / toolVisible / skillLoader / runtime / setRuntimeField / setSessionWorkingDirectory / userCustomPrompt / setUserCustomPrompt），由 `Agent` / `AgentSession` 实现
+- 新增 `tools/SessionToolContext.h`（session + caller 包装），`AbstractSessionTool::execute/tryExecuteAsync` 入参由 `Agent*` 改为 `SessionToolContext*`（**breaking**，产品仓工具需跟随）
+- `ConfigTool` 的 `parent()` hack 消除；`ToolCoordinator` / `SessionToolRuntime` / `RunCommandTool` / `BuiltinToolRuntime` 全部改持 `AbstractSession*`
+- `tools/` 不再 include `agent/` 任何头
 
 **影响面**：
 
-- 新增接口头 + 实现适配，改动中等
-- 公开头路径可能变化（breaking）
-- 需要同步更新测试与文档
+- `AbstractSessionTool` 公开签名变化（`Agent*` → `SessionToolContext*`，breaking）
+- 新增 3 个公开头（`tools/AbstractSession.h` / `AbstractUnit.h` / `SessionToolContext.h`）
+- 涉及 `tools/` 7 个文件 + `agent/` 4 个文件 + CMake 公开头闭包
+- 测试与文档已同步
 
-**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。`AgentMode` 依赖已随目录调整解开（`agent/AgentMode.h` → `config/AgentMode.h`），剩余为上述会话/单元依赖。
+**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。`AgentMode` 依赖已随目录调整解开（`agent/AgentMode.h` → `config/AgentMode.h`），本次解决剩余会话/单元依赖。
 
 ---
 

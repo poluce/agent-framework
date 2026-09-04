@@ -4,9 +4,6 @@
 #include "AbstractToolSource.h"
 #include "BuiltinToolRuntime.h"
 #include "SessionToolRuntime.h"
-#include "agent/AbstractOrchestration.h"
-#include "agent/Agent.h"
-#include "agent/AgentSession.h"
 #include "logging/LogManager.h"
 
 #include <QSet>
@@ -191,7 +188,7 @@ private:
 // ToolCoordinator
 // ====================================================================
 
-ToolCoordinator::ToolCoordinator(AgentSession *session,
+ToolCoordinator::ToolCoordinator(AbstractSession *session,
                                  AbstractToolSource *externalSource,
                                  QObject *parent)
     : QObject(parent)
@@ -247,12 +244,11 @@ QList<ToolSpec> ToolCoordinator::allSpecs() const
 
 QList<ToolSpec> ToolCoordinator::specsForAgent(const QString &agentId) const
 {
-    AbstractOrchestration *orch = m_session ? m_session->orchestration() : nullptr;
-    Agent *agent = m_session ? m_session->findById(agentId) : nullptr;
-    return collectSpecs(orch, agent);
+    AbstractUnit *unit = m_session ? m_session->findUnit(agentId) : nullptr;
+    return collectSpecs(m_session, unit);
 }
 
-QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractOrchestration *orch, Agent *agent) const
+QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractSession *session, AbstractUnit *unit) const
 {
     QList<ToolSpec> specs;
     QSet<QString> seen;
@@ -265,7 +261,7 @@ QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractOrchestration *orch, Agent
             if (name.isEmpty() || seen.contains(name)) {
                 continue;
             }
-            if (orch && !orch->toolVisible(agent, source->id(), name)) {
+            if (session && !session->toolVisible(unit, source->id(), name)) {
                 continue;
             }
             seen.insert(name);
@@ -307,19 +303,17 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
     }
 
     if (m_session) {
-        if (AbstractOrchestration *orch = m_session->orchestration()) {
-            Agent *agent = m_session->findById(agentId);
-            if (!orch->toolVisible(agent, source->id(), call.toolName)) {
-                ToolResult tr;
-                tr.toolName = call.toolName;
-                tr.toolUseId = call.id;
-                tr.success = false;
-                tr.isError = true;
-                tr.category = ToolResultCategory::Error;
-                tr.text = QStringLiteral("只有主 agent 可以使用此工具。");
-                completion(tr);
-                return;
-            }
+        AbstractUnit *unit = m_session->findUnit(agentId);
+        if (!m_session->toolVisible(unit, source->id(), call.toolName)) {
+            ToolResult tr;
+            tr.toolName = call.toolName;
+            tr.toolUseId = call.id;
+            tr.success = false;
+            tr.isError = true;
+            tr.category = ToolResultCategory::Error;
+            tr.text = QStringLiteral("只有主 agent 可以使用此工具。");
+            completion(tr);
+            return;
         }
     }
 

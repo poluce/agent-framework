@@ -140,9 +140,12 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     skills/FileSkill.h
     skills/FileSkillLoader.h
     skills/SkillService.h
+    tools/AbstractSession.h
     tools/AbstractSessionTool.h
     tools/AbstractToolSource.h
+    tools/AbstractUnit.h
     tools/BuiltinToolRuntime.h
+    tools/SessionToolContext.h
     tools/ToolTypes.h
 )
 

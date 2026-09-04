@@ -4,7 +4,7 @@
 
 #include <functional>
 
-class Agent;
+class SessionToolContext;
 
 namespace session_tool_detail {
 
@@ -33,10 +33,13 @@ inline void fillCallOutcome(ToolResult *result, const ToolCall &call, const QStr
 /**
  * @brief 会话级工具基类
  *
- * 所有操作 Agent/AgentSession/Team 的会话工具继承此基类。
+ * 所有操作会话/执行单元的会话工具继承此基类。
  * 永远在主线程执行，不需要线程安全快照，不需要路径安全。
  * 子类必须实现 spec() 和 execute()。
  * 耗时操作可覆写 tryExecuteAsync()，在主线程异步完成后回调，避免阻塞 UI。
+ *
+ * @note ctx 只在调用期间有效（栈对象）；异步路径请捕获 ctx->session() /
+ *       ctx->caller()（长生命），不要捕获 ctx 本身。
  */
 class AbstractSessionTool
 {
@@ -47,12 +50,12 @@ public:
 
     [[nodiscard]] virtual ToolSpec spec() const = 0;
 
-    virtual ToolResult execute(Agent *caller,
+    virtual ToolResult execute(SessionToolContext *ctx,
                                const ToolCall &call,
                                const QString &workingDirectory) = 0;
 
     /// 默认不接管；返回 true 表示已异步完成并回调 completion，调用方不得再走 sync execute。
-    virtual bool tryExecuteAsync(Agent * /*caller*/,
+    virtual bool tryExecuteAsync(SessionToolContext * /*ctx*/,
                                  const ToolCall & /*call*/,
                                  const QString & /*workingDirectory*/,
                                  AsyncCompletion /*completion*/)
