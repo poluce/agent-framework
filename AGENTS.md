@@ -193,6 +193,8 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
 | `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
 | `docs/TODO.md` | 技术债清单（已知耦合与待办重构） |
+| `docs/测试/coverage.md` | 测试覆盖率方案与踩坑记录 |
+| `scripts/coverage.ps1` | 覆盖率一键流程（Windows 原生 PowerShell） |
 | `examples/minimal/` | 仓外最小宿主：假 Provider 跑一轮 |
 | `tests/` | 公开面测试 + 本树内核私有头测试 |
 
@@ -207,3 +209,23 @@ ctest --test-dir build --output-on-failure
 ```
 
 作为产品 submodule 检出时，用产品仓脚本：`pwsh scripts/build.ps1 -Target framework` / `pwsh scripts/test.ps1 -Module Framework`（在产品仓根执行）。
+
+### 覆盖率
+
+```powershell
+# 一键流程（Windows 原生 PowerShell；详见 docs/测试/coverage.md）
+pwsh scripts/coverage.ps1
+```
+
+- 开关：`-DAGENT_FRAMEWORK_COVERAGE=ON`（仅 GCC/Clang；用独立 build 目录，不污染普通构建）
+- 报告：文本汇总 + `coverage.html`（逐文件）+ `coverage.xml`（CI 上传）
+
+**踩过的坑（问题 → 处理办法）**：
+
+| 问题 | 处理办法 |
+|------|----------|
+| WSL 里跑 gcovr + Windows MinGW gcov 路径映射失败（`/mnt/...` vs `F:/...`），`--html-details` 报大量 source not found | 在 **Windows 原生 PowerShell** 用 Windows Python 装 gcovr 再跑；`--filter` 必须用正斜杠；实在不行先用普通 `--html`（单页汇总） |
+| 排除 `tests/` 对象目录导致产品源码覆盖率虚低（0%） | **不要排除** tests 对象目录；用 `--filter` 只保留要统计的源码路径（如 `src/`） |
+| 覆盖率构建下安装布局测试链接缺 `__gcov_*` 符号失败 | 覆盖率跑测排除：`ctest --test-dir <build> -E agent_framework_install_layout` |
+| `_deps` / `third_party` 无关源码拖慢 gcovr 扫描 | `--exclude-directories` 排除 `_deps`、`third_party/*` |
+| 全量 `--coverage` 首次编译很慢 | 独立 build 目录 + 增量构建，不污染普通构建 |
