@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.5.2**。只依赖 Qt 6 Core + Network + Concurrent。
+本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.5.3**。只依赖 Qt 6 Core + Network + Concurrent。
 
 不是 GUI/TUI 手册，也不是 Host 协议。宿主怎么把本内核嵌进桌面应用，见上层产品仓的 `docs/agent-framework.md`。
 
@@ -133,6 +133,12 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 - spawn / 组内发信 / team_* 属于配方工具源，不要再放回 `SessionToolRuntime`。
 - 特权名（谁能调用）记在配方里，用 `toolVisible` 裁；内核不认 `leaderOnly`。
 - 外部工具源（如 MCP）由宿主注入 `externalToolSource`；可见性同样走 `toolVisible`。
+- **分组可见性（可选）**：`ToolSpec::group` 给工具标逻辑分组（如 MCP 服务器名），源覆盖
+  `AbstractToolSource::visibleGroups(agentId)` 声明「该 agent 可见哪些分组」（空 = 不限）。
+  与 `toolVisible` **AND**：`toolVisible` 目录期按单工具名裁（列不列），分组在目录期
+  （`specsForAgent`）与调用期（`dispatch`，拦在 `invoke` 之前）同时强制（调不调）——
+  **列得出 = 调得到**。适合表达「整个服务器/分组对该 agent 不可见」（如 MCP per-role 服务器裁剪）。
+  内置/普通源不填 `group` 则完全不受影响。
 
 ---
 

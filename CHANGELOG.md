@@ -2,6 +2,16 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-09-05
+
+### 🟢 新增功能
+
+- **工具分组可见性（per-role 服务器裁剪）**：`ToolSpec::group` 给工具标逻辑分组（如 MCP 服务器名），源覆盖 `AbstractToolSource::visibleGroups(agentId)` 声明「该 agent 可见哪些分组」（空 = 不限）
+  - 目录期（`ToolCoordinator::specsForAgent`）与调用期（`dispatch`，拦在 `source->invoke` 之前）**同时强制**——列得出 = 调得到；分组不在集合内的工具即使手工拼名调用也会被直接拒绝，源自包含转发路径（如 MCP `callToolAsync`）无法绕过
+  - 与 `toolVisible` 是 **AND**：`toolVisible` 目录期按单工具名裁（列不列），分组按「集合」裁（调不调）
+  - 内置/普通源不填 `group` 则完全不受影响（默认空 = 不限，零破坏）
+  - 适合宿主做 MCP per-role 会话：角色 A 只见 `anysearch` 服务器、角色 B 只见 `fetch`（配合 mcp-qt `McpServerView` 注入提示词/资源）；内核不建模 MCP，只提供通用「分组可见性」抽象（issue #30）
+
 ## [0.5.2] - 2026-09-04
 
 ### 🔴 Breaking Changes（升级前必看）

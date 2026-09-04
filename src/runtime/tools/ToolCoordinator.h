@@ -65,9 +65,9 @@ public:
     /// 会话清空（AgentSession::clear）：通知全部已登记源丢弃单元级状态。
     void notifySessionCleared();
 
-    /// 全量目录（登记 / 测试）；不含编排裁剪。
+    /// 全量目录（登记 / 测试）；不含编排裁剪与分组过滤。
     QList<ToolSpec> allSpecs() const;
-    /// 该单元实际可调用的目录（编排 toolVisible 裁剪后）。
+    /// 该单元实际可调用的目录（toolVisible 裁剪 + 源分组可见性过滤后）。
     QList<ToolSpec> specsForAgent(const QString &agentId) const;
     [[nodiscard]] ToolSpec specForName(const QString &toolName) const;
 
@@ -90,7 +90,10 @@ signals:
 private:
     [[nodiscard]] QList<AbstractToolSource *> sources() const;
     [[nodiscard]] AbstractToolSource *sourceOwning(const QString &toolName) const;
-    [[nodiscard]] QList<ToolSpec> collectSpecs(AbstractSession *session, AbstractUnit *unit) const;
+    [[nodiscard]] QString specGroup(AbstractToolSource *source, const QString &toolName) const;
+    [[nodiscard]] QList<ToolSpec> collectSpecs(AbstractSession *session,
+                                               AbstractUnit *unit,
+                                               const QString &agentId) const;
 
     AbstractSession *m_session;
     BuiltinToolRegistry m_registry;

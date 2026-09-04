@@ -2,6 +2,7 @@
 
 #include "AbstractBuiltinTool.h"
 #include "AbstractToolSource.h"
+#include "AbstractUnit.h"
 #include "BuiltinToolRuntime.h"
 #include "SessionToolRuntime.h"
 #include "logging/LogManager.h"
@@ -273,16 +274,18 @@ AbstractToolSource *ToolCoordinator::sourceOwning(const QString &toolName) const
 
 QList<ToolSpec> ToolCoordinator::allSpecs() const
 {
-    return collectSpecs(nullptr, nullptr);
+    return collectSpecs(nullptr, nullptr, QString());
 }
 
 QList<ToolSpec> ToolCoordinator::specsForAgent(const QString &agentId) const
 {
     AbstractUnit *unit = m_session ? m_session->findUnit(agentId) : nullptr;
-    return collectSpecs(m_session, unit);
+    return collectSpecs(m_session, unit, agentId);
 }
 
-QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractSession *session, AbstractUnit *unit) const
+QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractSession *session,
+                                              AbstractUnit *unit,
+                                              const QString &agentId) const
 {
     QList<ToolSpec> specs;
     QSet<QString> seen;
@@ -290,12 +293,20 @@ QList<ToolSpec> ToolCoordinator::collectSpecs(AbstractSession *session, Abstract
         if (!source) {
             continue;
         }
+        // 分组可见性（目录期与 dispatch 调用期一致：列得出 = 调得到）。
+        // agentId 为空（allSpecs 登记/测试）或源不限分组（空）时不过滤。
+        const QStringList visibleGroups =
+            agentId.isEmpty() ? QStringList{} : source->visibleGroups(agentId);
         for (const ToolSpec &spec : source->specs()) {
             const QString name = spec.name.trimmed();
             if (name.isEmpty() || seen.contains(name)) {
                 continue;
             }
             if (session && !session->toolVisible(unit, source->id(), name)) {
+                continue;
+            }
+            if (!spec.group.isEmpty() && !visibleGroups.isEmpty()
+                && !visibleGroups.contains(spec.group)) {
                 continue;
             }
             seen.insert(name);
@@ -315,6 +326,20 @@ ToolSpec ToolCoordinator::specForName(const QString &toolName) const
     for (const ToolSpec &spec : source->specs()) {
         if (spec.name == name) {
             return spec;
+        }
+    }
+    return {};
+}
+
+QString ToolCoordinator::specGroup(AbstractToolSource *source, const QString &toolName) const
+{
+    const QString name = toolName.trimmed();
+    if (!source) {
+        return {};
+    }
+    for (const ToolSpec &spec : source->specs()) {
+        if (spec.name == name) {
+            return spec.group;
         }
     }
     return {};
@@ -346,6 +371,24 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
             tr.isError = true;
             tr.category = ToolResultCategory::Error;
             tr.text = QStringLiteral("只有主 agent 可以使用此工具。");
+            completion(tr);
+            return;
+        }
+    }
+
+    // 调用期分组强制：工具属某分组（ToolSpec::group）且该 agent 不在源放行的分组集合内 → 拒绝。
+    // 拦在 invoke 之前，源内部转发路径（如 MCP callToolAsync）无法绕过。
+    const QString group = specGroup(source, call.toolName);
+    if (!group.isEmpty()) {
+        const QStringList visible = source->visibleGroups(agentId);
+        if (!visible.isEmpty() && !visible.contains(group)) {
+            ToolResult tr;
+            tr.toolName = call.toolName;
+            tr.toolUseId = call.id;
+            tr.success = false;
+            tr.isError = true;
+            tr.category = ToolResultCategory::Rejected;
+            tr.text = QStringLiteral("此工具所属分组对该 agent 不可见。");
             completion(tr);
             return;
         }

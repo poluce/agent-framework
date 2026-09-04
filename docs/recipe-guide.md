@@ -178,6 +178,100 @@ void onUnitStateChanged(Agent *unit) override
 - 实现 `AbstractToolSource`，在 `toolSource()` 返回；用 `toolVisible` 按单元裁剪
 - MCP 由宿主注入会话级 `externalToolSource`；谁能用哪个 MCP 工具同样走 `toolVisible`
 - 特权名（谁能调用）记在配方里，内核不认 `leaderOnly`
+- **按「分组/服务器」整体裁剪（可选）**：`ToolSpec::group` 给工具标逻辑分组（MCP 场景 = 服务器名），
+  源覆盖 `AbstractToolSource::visibleGroups(agentId)` 声明该 agent 可见的分组（空 = 不限）。与
+  `toolVisible` 是 **AND**：目录期（`specsForAgent`）与调用期（`dispatch`，拦在 `invoke` 之前）同时强制，
+  **列得出 = 调得到**。适合「角色 A 只见 MCP 服务器 anysearch、角色 B 只见 fetch」这类 per-role 需求；
+  服务器自带的提示词/资源由宿主用源内视图（如 mcp-qt `McpServerView`）按可见服务器注入，内核不建模 MCP。
+  内置/普通源不填 `group` 则完全不受影响（默认零破坏）
+
+### 7.1 示例：MCP 源按角色裁剪服务器（per-role）
+
+角色化产品（leader/member、不同职能 agent 同会话并行）通常要求：**角色 A 的会话只见 `anysearch` 服务器，角色 B 只见 `fetch`**。内核做法是让源自己声明分组归属 + 按 agent 放行，不需要宿主为每个角色建独立会话或重复 MCP 连接：
+
+```cpp
+class RoleMcpSource final : public AbstractToolSource
+{
+public:
+    // 角色 → 可见服务器 由宿主装配（配置文件 / 角色卡驱动）
+    void setRoleServers(const QString &agentId, const QStringList &serverNames)
+    {
+        m_roleServers.insert(agentId, serverNames);
+    }
+
+    QString id() const override { return QStringLiteral("mcp"); }
+
+    QList<ToolSpec> specs() const override
+    {
+        QList<ToolSpec> out;
+        // 每个服务器导出的工具都带上 group = 服务器名（内核不认 MCP，只认分组）
+        for (const auto &srv : m_host->serverNames()) {
+            for (const auto &t : m_host->toolsOfServer(srv)) {
+                ToolSpec spec;
+                spec.name = srv + QStringLiteral("_") + t.name;   // 名字空间前缀，路由用
+                spec.description = t.description;
+                spec.inputSchema = t.inputSchema;
+                spec.permissionKind = ToolPermissionKind::Command;
+                spec.group = srv;                                  // ← 分组归属
+                out.append(spec);
+            }
+        }
+        return out;
+    }
+
+    bool owns(const QString &toolName) const override
+    {
+        const auto parsed = m_host->parseToolName(toolName);       // {serverName, toolName}
+        return m_host->serverNames().contains(parsed.first);
+    }
+
+    void invoke(const ToolCall &call, const ToolInvokeContext &ctx, Completion done) override
+    {
+        // 目录期与调用期都被内核强制拦截过；这里做实际路由即可。
+        // 想纵深防御可再自查一次 ctx.agentId 的分组（非必须）。
+        m_host->callToolAsync(call.toolName, call.input,
+                              [call, done = std::move(done)](const auto &res) {
+                                  ToolResult tr;
+                                  tr.toolUseId = call.id;
+                                  tr.toolName = call.toolName;
+                                  tr.success = !res.isError;
+                                  tr.text = res.isError ? res.errorString
+                                                        : QString::fromUtf8(QJsonDocument(res.data)
+                                                              .toJson(QJsonDocument::Compact));
+                                  done(std::move(tr));
+                              });
+    }
+
+    // ← 本功能核心：声明「该 agent 可见哪些服务器」。空 = 全部可见（默认，零破坏）。
+    QStringList visibleGroups(const QString &agentId) const override
+    {
+        return m_roleServers.value(agentId);   // 查不到 = 空 = 全部可见
+    }
+
+private:
+    mcp_qt::McpHost *m_host = nullptr;         // mcp-qt 宿主（连接全局共享）
+    QHash<QString, QStringList> m_roleServers; // agentId → 可见服务器
+};
+```
+
+装配（宿主组合根）：
+
+```cpp
+auto *mcp = new RoleMcpSource(host);
+mcp->setRoleServers("agent-0", {"anysearch"});   // 角色 A：只见 anysearch
+mcp->setRoleServers("agent-1", {"fetch"});       // 角色 B：只见 fetch
+cfg.externalToolSource = mcp;                    // 同一会话内多角色并行
+```
+
+效果：
+
+- **目录**：`agent-0` 拿到的 specs 只含 `anysearch_*`，模型看不到 `fetch_*`；
+- **调用**：即便手工拼 `fetch_xxx` 调用，`dispatch` 也在 `invoke` 之前直接拒绝（`Rejected`），
+  `fetch` 服务器进程根本不会被触达；
+- **提示词/资源**：宿主用 mcp-qt `McpServerView::exportAllPrompts/Resources()` 按同一张
+  `setRoleServers` 表给不同 agent 注入不同上下文即可，与工具裁剪共用一份角色卡。
+
+不想要角色隔离的现有源**什么都不用改**：不填 `group`、不覆盖 `visibleGroups`，行为与 0.5.2 完全一致。
 
 ---
 

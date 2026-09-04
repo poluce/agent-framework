@@ -5,6 +5,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 #include <functional>
 
@@ -75,6 +76,17 @@ public:
     /// 会话清空通知：AgentSession::clear()（单元全删、会话继续）时调用。
     /// 源应丢弃单元级状态（订阅、临时工具、进程）；持久资源保留。默认空。
     virtual void sessionCleared() {}
+
+    /// 该 agent 可见的逻辑分组（ToolSpec::group）集合。空 = 不限（所有分组可见）。
+    /// 与 toolVisible 的关系：toolVisible 在目录期按「单工具名」裁剪（specsForAgent 列不列）；
+    /// 本口在调用期按「分组」强制（dispatch 时 group 不在本集合内的工具直接拒绝，不进 invoke）。
+    /// 两者 AND：工具要被实际调用，必须同时通过 toolVisible（目录里有）与分组校验（能调到）。
+    /// 适合表达「整个服务器/分组对该 agent 不可见」的语义（如 MCP per-role 服务器裁剪）。
+    [[nodiscard]] virtual QStringList visibleGroups(const QString &agentId) const
+    {
+        Q_UNUSED(agentId);
+        return {};
+    }
 
 signals:
     void toolsChanged();

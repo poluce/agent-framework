@@ -33,6 +33,9 @@ struct ToolSpec
     bool strictSchema = false;
     bool deferLoading = false;
     QStringList allowedCallers;
+    /// 可选逻辑分组（如 MCP 服务器名）。空 = 不分组的普通工具，不受 visibleGroups 限制。
+    /// 源在 specs() 里给工具填分组；dispatch 调用期按 source->visibleGroups(agentId) 强制校验。
+    QString group;
 };
 
 struct ToolCall
