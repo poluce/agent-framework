@@ -4,6 +4,7 @@
 #include "CompactConfig.h"
 #include "ModelTokenDefaults.h"
 #include <QJsonObject>
+#include <QStringList>
 #include <QVariant>
 
 /// 统一的 Agent 运行时配置：Q_GADGET + X-macro 驱动 toJson/fromJson/setField。
@@ -28,6 +29,19 @@ public:
 
     QJsonObject toJson() const;
     static SessionRuntime fromJson(const QJsonObject &obj);
+
+    /// 字段清单（X-macro 同源展开，含枚举字段；与 toJson 键一致）。
+    /// 供宿主白名单/字段集指纹比对：字段集变化时据此检测「白名单需核对」。
+    static QStringList fieldKeys()
+    {
+        QStringList keys;
+#define GD_FIELD(Type, Name, Default) keys << QStringLiteral(#Name);
+#define GD_ENUM_FIELD(Type, Name, EnumDefault, StringDefault) keys << QStringLiteral(#Name);
+#include "config/SessionRuntime.fields.h"
+#undef GD_FIELD
+#undef GD_ENUM_FIELD
+        return keys;
+    }
 
     /// 按字段名设值（Host SetSessionConfig / 内部工具）；不做语义规范化。
     bool setField(const QString &name, const QVariant &value);

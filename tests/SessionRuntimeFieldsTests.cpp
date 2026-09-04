@@ -17,6 +17,7 @@ class SessionRuntimeFieldsTests final : public QObject
 private slots:
     void gadgetProperties_matchFrozenFieldList();
     void jsonRoundTrip_preservesWritableValues();
+    void fieldKeys_coverFrozenAndEnumFields();
 };
 
 namespace {
@@ -95,6 +96,29 @@ void SessionRuntimeFieldsTests::jsonRoundTrip_preservesWritableValues()
     QCOMPARE(dst2.agentMode, AgentMode::Planning);
     QCOMPARE(dst2.toolScope, ToolScope::ReadOnly);
     QCOMPARE(dst2.approvalMode, ApprovalMode::Auto);
+}
+
+void SessionRuntimeFieldsTests::fieldKeys_coverFrozenAndEnumFields()
+{
+    const QStringList keys = SessionRuntime::fieldKeys();
+
+    // 覆盖全部 Q_PROPERTY 字段（冻结名单）
+    for (const QString &name : kFrozenFieldNames) {
+        QVERIFY2(keys.contains(name),
+                 qPrintable(QStringLiteral("fieldKeys 缺少字段: %1").arg(name)));
+    }
+    // 覆盖枚举字段（无 Q_PROPERTY，但 toJson 有键）
+    QVERIFY(keys.contains(QStringLiteral("agentMode")));
+    QVERIFY(keys.contains(QStringLiteral("toolScope")));
+    QVERIFY(keys.contains(QStringLiteral("approvalMode")));
+    // 与 toJson 键一致（字段集指纹用途：宿主白名单自动比对）
+    const SessionRuntime rt;
+    const QStringList jsonKeys = rt.toJson().keys();
+    QCOMPARE(keys.size(), jsonKeys.size());
+    for (const QString &key : jsonKeys) {
+        QVERIFY2(keys.contains(key),
+                 qPrintable(QStringLiteral("fieldKeys 缺少 toJson 键: %1").arg(key)));
+    }
 }
 
 QTEST_MAIN(SessionRuntimeFieldsTests)
