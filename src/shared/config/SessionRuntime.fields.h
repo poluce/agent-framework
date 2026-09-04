@@ -27,6 +27,7 @@ GD_FIELD(bool,    reasoningEnabled,    false)
 GD_FIELD(QString, reasoningEffort,     QString())
 
 // ── 身份 ──
+/// 仅宿主查询用；不参与系统提示词拼装（拼装走 SystemPromptBuilder 体系）
 GD_FIELD(QString, systemPrompt,        QString())
 
 // ── 运行限制 ──

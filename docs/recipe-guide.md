@@ -171,6 +171,10 @@ void onUnitStateChanged(Agent *unit) override
 ## 7. 工具与 MCP
 
 - 内核会话工具只有 `config`、`agent_todo_write`；spawn / 组内发信 / team_* 属于配方工具源
+- `config` 可写键为白名单（模型/执行参数/压缩/段摘要/邮箱 + `systemPrompt`/`systemPromptAppend`）；
+  `approvalMode`/`toolScope`/`providerType`/`workingDirectory` 等危险键不可由 agent 修改（宿主/配方管理），读取不受限
+- `config("systemPrompt", 全文)` 全量替换并**持久化到用户提示词文件**（宿主配置 `PromptPaths.userPromptFile` 后）；
+  `config("systemPromptAppend", 条目)` 追加并持久化——agent 固化经验的安全通道（配方可用它搭「记住教训」模式）
 - 实现 `AbstractToolSource`，在 `toolSource()` 返回；用 `toolVisible` 按单元裁剪
 - MCP 由宿主注入会话级 `externalToolSource`；谁能用哪个 MCP 工具同样走 `toolVisible`
 - 特权名（谁能调用）记在配方里，内核不认 `leaderOnly`

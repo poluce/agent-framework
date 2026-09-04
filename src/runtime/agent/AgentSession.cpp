@@ -184,7 +184,10 @@ QString AgentSession::userCustomPrompt() const
 void AgentSession::setUserCustomPrompt(const QString &text)
 {
     if (m_config.promptBuilder) {
-        m_config.promptBuilder->setUserCustomPrompt(text);
+        const QString trimmed = text.trimmed();
+        m_config.promptBuilder->setUserCustomPrompt(trimmed);
+        // 持久化到用户提示词文件（未配置路径时 savePromptFile 为 no-op）
+        m_config.promptBuilder->savePromptFile(trimmed);
     }
 }
 

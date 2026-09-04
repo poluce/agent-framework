@@ -88,6 +88,7 @@ public:
     // ── 状态查询 ──
     [[nodiscard]] core_ir::AgentPhase currentPhase() const;
     QString lastError() const;
+    /// 仅宿主查询用；不参与系统提示词拼装（拼装走 SystemPromptBuilder 体系）。
     QString systemPrompt() const;
     bool busy() const;
     bool hasPendingApproval() const;
