@@ -2,6 +2,16 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `core_ir::ApiKeyUpdateMode` 移出 `types/CoreEvent.h`，随使用方迁入 `providers/service/ProviderCredential.h`（`core_ir::ApiKeyUpdateMode` → `ApiKeyUpdateMode`）
+
+### 🟡 功能修改
+
+- 模块解耦：`providers ↔ types` 依赖环消除——`ProviderCredential` 不再依赖 `types/CoreEvent.h`（TODO #1）
+
 ## [0.4.0] - 2026-09-03
 
 ### 🔴 Breaking Changes（升级前必看）

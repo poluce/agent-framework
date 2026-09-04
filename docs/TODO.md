@@ -4,9 +4,9 @@
 
 ## 耦合类
 
-### [ ] 1. `providers ↔ types` 依赖环（模块级环）
+### [x] 1. `providers ↔ types` 依赖环（模块级环）
 
-**状态**：待办（未开始）
+**状态**：已解决（2026-09-04，`refactor/decouple-modules`）
 
 **问题**：`providers` 与 `types` 互相依赖，形成模块级环：
 
@@ -17,21 +17,20 @@ providers/service/ProviderCredential.h
               └── providers/ProviderTypes/ProviderCommon.h
 ```
 
-**根因**：`ConversationMessage::imageOutput` 使用了 `ProviderImageAsset`（定义在 `providers/ProviderTypes/ProviderCommon.h`），导致 `types` 反向依赖 `providers`。
+**根因（修正）**：环有两条边，实际拆的是最小的一条：
 
-**建议方向**：
+- 边 A（`types → providers`）：`ConversationMessage::imageOutput` 使用 `ProviderImageAsset`——稳定且有意义的依赖（会话记录携带协议资产），**保留**
+- 边 B（`providers → types`）：`ProviderCredential.h` include `CoreEvent.h` 仅为 `core_ir::ApiKeyUpdateMode` 一个枚举——意外依赖，**拆除**
 
-- 把资产类型（`ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 等）从 `providers/ProviderTypes` 下沉到更低层（`shared/` 或 `types/`）
-- 下沉后依赖方向变为：`shared → tools → providers → types`，环消除
-- `providers` 恢复为叶子模块
+**修法**：把 `ApiKeyUpdateMode` 从 `types/CoreEvent.h` 挪进 `providers/service/ProviderCredential.h`（随使用方走），删除 `ProviderCredential.h` 对 `types/CoreEvent.h` 的 include。环消除，资产类型留在协议层不动。
 
 **影响面**：
 
-- `ProviderCommon.h` 拆分，涉及 `ProviderItem` / `ConversationMessage` / `ProviderRunLedger` 的 include
-- 公开头路径可能变化（breaking）
-- 需要同步更新测试与文档
+- `ApiKeyUpdateMode` 公开路径变化（`core_ir::ApiKeyUpdateMode` → `ApiKeyUpdateMode`，breaking）
+- 涉及 `CoreEvent.h` / `ProviderCredential.h` / `ProviderCredential.cpp`
+- 测试与文档已同步
 
-**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。
+**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。原建议方向（资产下沉 `types/`）因拆协议层代价大而放弃，改为拆最小边。
 
 ---
 

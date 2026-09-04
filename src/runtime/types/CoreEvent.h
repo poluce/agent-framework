@@ -47,14 +47,6 @@ struct EventContext {
     }
 };
 
-/// API keys deliberately have a three-state update contract.  In particular,
-/// an empty editor field does not accidentally erase a saved key.
-enum class ApiKeyUpdateMode {
-    Preserve,
-    Replace,
-    Clear,
-};
-
 /// Loop 阶段身份（非展示文案）。Host 投影再映射为界面语言。
 enum class AgentPhase {
     Idle,

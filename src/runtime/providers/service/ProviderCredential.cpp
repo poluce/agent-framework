@@ -72,7 +72,7 @@ bool ProviderCredential::updateInstance(const QString &id,
                                         const QString &name,
                                         const QString &baseUrl,
                                         const QString &apiKey,
-                                        const core_ir::ApiKeyUpdateMode apiKeyUpdate)
+                                        const ApiKeyUpdateMode apiKeyUpdate)
 {
     const int row = indexOf(id);
     if (row < 0) {
@@ -88,12 +88,12 @@ bool ProviderCredential::updateInstance(const QString &id,
     inst.baseUrl = baseUrl.trimmed();
 
     switch (apiKeyUpdate) {
-    case core_ir::ApiKeyUpdateMode::Preserve:
+    case ApiKeyUpdateMode::Preserve:
         break;
-    case core_ir::ApiKeyUpdateMode::Replace:
+    case ApiKeyUpdateMode::Replace:
         inst.apiKey = apiKey.trimmed();
         break;
-    case core_ir::ApiKeyUpdateMode::Clear:
+    case ApiKeyUpdateMode::Clear:
         inst.apiKey.clear();
         break;
     }

@@ -1,11 +1,19 @@
 #pragma once
 
-#include "types/CoreEvent.h"
-
 #include <QJsonObject>
 #include <QList>
 #include <QString>
 #include <QStringList>
+
+/**
+ * API keys deliberately have a three-state update contract.  In particular,
+ * an empty editor field does not accidentally erase a saved key.
+ */
+enum class ApiKeyUpdateMode {
+    Preserve,
+    Replace,
+    Clear,
+};
 
 /**
  * Persistent provider credentials are Core data, not a QML model.
@@ -45,7 +53,7 @@ public:
                         const QString &name,
                         const QString &baseUrl,
                         const QString &apiKey,
-                        core_ir::ApiKeyUpdateMode apiKeyUpdate);
+                        ApiKeyUpdateMode apiKeyUpdate);
 
     /// Contains the API key.  Never expose this map through ProtocolEvent.
     QVariantMap getInstance(const QString &id) const;
