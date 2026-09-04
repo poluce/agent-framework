@@ -126,9 +126,9 @@ public:
                                     const QString &skillBody);
     /**
      * 忙时/空闲统一入口：按 delivery 入队；Idle 且 NextTurn 时 start 开轮。
-     * Busy 时仅入队不 start。
+     * Busy 时仅入队不 start。返回是否成功入队（空消息/空附件返回 false）。
      */
-    void submitUserDelivery(const QString &message,
+    bool submitUserDelivery(const QString &message,
                             const QStringList &attachedFilePaths,
                             AbstractLoop::UserDelivery delivery);
     /// 确认 next_turn 待发送（须 Idle）；无条目返回 false
@@ -137,7 +137,8 @@ public:
     [[nodiscard]] int pendingNextTurnCount() const;
     [[nodiscard]] QStringList pendingNextTurnPreviews(int maxItems = 10) const;
     [[nodiscard]] bool prefersSteerDelivery() const;
-    void submitAgentTask(const QString &message);
+    /// 提交代理任务（NextTurn 开轮）；返回是否成功入队（空消息返回 false）。
+    bool submitAgentTask(const QString &message);
     void cancelCurrentTurn();
     /// 失败收口后同会话再打一轮；无待重放用户消息则 false。
     [[nodiscard]] bool retryFailedMessage();
@@ -215,7 +216,7 @@ signals:
 private:
     using ToolCompletion = BuiltinToolRuntime::Completion;
 
-    void submitMessageInternal(const QString &message, ConversationMessage::Kind kind, const QString &logLabel);
+    bool submitMessageInternal(const QString &message, ConversationMessage::Kind kind, const QString &logLabel);
     void handleLoopStateChanged();
     void handleLoopDataChanged();
     void onCompactionRequested(qint64 currentTokens, qint64 threshold);

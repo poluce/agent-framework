@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 class AbstractToolSource;
@@ -49,7 +50,9 @@ public:
         return true;
     }
 
-    /// 系统提示角色模板文件名（仅 basename）。空 = 不拼角色块。
+    /// 系统提示角色模板文件名（仅 basename，禁止路径分隔符）。空 = 不拼角色块。
+    /// 解析根：`:/system_prompts/`（内置 qrc）与 `<可执行文件目录>/system_prompts/`
+    /// （外部目录；同名文件追加不覆盖）。
     [[nodiscard]] virtual QString rolePromptFile(const Agent *unit) const
     {
         Q_UNUSED(unit);
@@ -77,26 +80,23 @@ public:
         return true;
     }
 
-    /// 会话清空单元表前。
-    virtual void onUnitsClearing() {}
+    /// 会话清空单元表前。默认清主单元记录。
+    virtual void onUnitsClearing();
 
     /// `AgentSession::start()` 清空后：配方可在此插入首批单元。
     /// 默认不插；无编排的会话保持空表。
     virtual void onSessionStarted() {}
 
     /// 单元刚登记进会话表（尚未 setCoordinator）。
-    virtual void onUnitInserted(Agent *unit) { Q_UNUSED(unit); }
+    /// 默认：记录第一个单元为主单元（可覆盖；覆盖时如需默认行为请调用基类）。
+    virtual void onUnitInserted(Agent *unit);
 
     /// 单元状态变化（内核不解释含义；配方可在此拉排队等）。
     virtual void onUnitStateChanged(Agent *unit) { Q_UNUSED(unit); }
 
-    /// 本配方的主单元；空 = 无。
-    [[nodiscard]] virtual Agent *primaryUnit() const { return nullptr; }
-    [[nodiscard]] virtual bool isPrimary(const Agent *unit) const
-    {
-        Q_UNUSED(unit);
-        return false;
-    }
+    /// 本配方的主单元；默认 = 第一个登记的单元（无则空）。可覆盖。
+    [[nodiscard]] virtual Agent *primaryUnit() const;
+    [[nodiscard]] virtual bool isPrimary(const Agent *unit) const;
 
     /// Host / 组合根创建单元。默认拒绝。
     /// `parentAgentId` 只是可选元数据，口本身不规定必须成树。
@@ -112,4 +112,8 @@ public:
         Q_UNUSED(agentId);
         return nullptr;
     }
+
+private:
+    /// 默认主单元（onUnitInserted 记录第一个；单元销毁自动置空）。
+    QPointer<Agent> m_primaryUnit;
 };

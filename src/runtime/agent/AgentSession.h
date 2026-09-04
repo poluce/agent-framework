@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
@@ -113,8 +114,6 @@ public:
     // ── 执行单元 ──
     /// 登记一个执行单元。不要求已有主单元，不设 parent，不改审批/工作区。
     Agent *insertUnit(const QString &agentId, const QString &displayName);
-    /// 同 insertUnit（既有调用方）。
-    Agent *createAgent(const QString &agentId, const QString &displayName);
 
     // ── 查找 ──
     Agent *findById(const QString &agentId) const;
@@ -197,6 +196,9 @@ private:
     void applyBlobRootToAgents();
 
     AgentSessionConfig m_config;
+    /// 编排存活守卫：编排先于会话销毁（组合根声明顺序错误）时自动置空，
+    /// 析构据此告警而非悬垂调用 detach。
+    QPointer<AbstractOrchestration> m_orchestrationGuard;
     SessionRuntime m_runtime;
     QString m_sessionId;
     QString m_sessionBlobKey;

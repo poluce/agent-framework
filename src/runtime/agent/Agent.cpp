@@ -400,13 +400,13 @@ void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason
 
 // ── 操作 ──
 
-void Agent::submitUserDelivery(const QString &message,
+bool Agent::submitUserDelivery(const QString &message,
                                const QStringList &attachedFilePaths,
                                AbstractLoop::UserDelivery delivery)
 {
     const QString trimmed = message.trimmed();
     if (trimmed.isEmpty() && attachedFilePaths.isEmpty()) {
-        return;
+        return false;
     }
 
     LOGD(LogCat::Agent) << "提交用户消息"
@@ -417,10 +417,11 @@ void Agent::submitUserDelivery(const QString &message,
         << logf("busy", m_loop->isBusy())
         << logf("preview", trimmed.left(80));
 
+    bool accepted = false;
     if (attachedFilePaths.isEmpty()) {
-        m_loop->enqueueUserMessage(trimmed, delivery);
+        accepted = m_loop->enqueueUserMessage(trimmed, delivery);
     } else {
-        m_loop->enqueueUserMessageWithFiles(trimmed, attachedFilePaths, delivery);
+        accepted = m_loop->enqueueUserMessageWithFiles(trimmed, attachedFilePaths, delivery);
     }
 
     // Idle + NextTurn：立即开轮；Busy 或 Steer 仅排队
@@ -428,6 +429,7 @@ void Agent::submitUserDelivery(const QString &message,
         m_status = AgentStatus::Running;
         m_loop->start(m_runtime);
     }
+    return accepted;
 }
 
 bool Agent::confirmPendingNextTurns()
@@ -461,24 +463,25 @@ bool Agent::prefersSteerDelivery() const
     return m_loop && m_loop->prefersSteerDelivery();
 }
 
-void Agent::submitAgentTask(const QString &message)
+bool Agent::submitAgentTask(const QString &message)
 {
-    submitMessageInternal(message, ConversationMessage::Kind::AgentTask, QStringLiteral("接收代理任务:"));
+    return submitMessageInternal(message, ConversationMessage::Kind::AgentTask, QStringLiteral("接收代理任务:"));
 }
 
-void Agent::submitMessageInternal(const QString &message, ConversationMessage::Kind kind, const QString &logLabel)
+bool Agent::submitMessageInternal(const QString &message, ConversationMessage::Kind kind, const QString &logLabel)
 {
     const QString trimmed = message.trimmed();
     if (trimmed.isEmpty()) {
-        return;
+        return false;
     }
 
     LOGD(LogCat::Agent) << logLabel
         << logf("agentId", m_agentId)
         << logf("preview", trimmed.left(80));
     m_status = AgentStatus::Running;
-    m_loop->enqueueMessage(trimmed, kind, {}, AbstractLoop::UserDelivery::NextTurn);
+    const bool accepted = m_loop->enqueueMessage(trimmed, kind, {}, AbstractLoop::UserDelivery::NextTurn);
     m_loop->start(m_runtime);
+    return accepted;
 }
 
 bool Agent::canRetryFailedMessage() const
