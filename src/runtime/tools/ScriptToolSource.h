@@ -53,6 +53,8 @@ public:
     void invoke(const ToolCall &call, const ToolInvokeContext &ctx, Completion done) override;
     /// 会话关闭：杀全部脚本进程、删临时工具文件、清会话态（订阅/会话指针）。
     void sessionClosing() override;
+    /// 会话清空：杀全部脚本进程、注销临时工具（删文件）、清订阅；持久工具保留。
+    void sessionCleared() override;
 
     // ── 探针（测试/宿主）──
     int processCount() const { return m_processes.size(); }
@@ -71,6 +73,8 @@ private:
     void scanDir(const QString &dir);
     ScriptProcess *processFor(const QString &toolName);
     void handleEvent(const QString &toolName, const QJsonObject &event);
+    /// 杀全部进程、清订阅、注销临时工具（删文件）；持久工具保留。
+    void resetSessionState();
     static ToolSpec createToolSpec();
     static ToolSpec deleteToolSpec();
     static QJsonObject parseManifest(const QByteArray &head);

@@ -62,6 +62,8 @@ public:
     void removeSource(AbstractToolSource *source);
     /// 查询源的登记归属；未登记返回空。
     QString sourceOwner(AbstractToolSource *source) const;
+    /// 会话清空（AgentSession::clear）：通知全部已登记源丢弃单元级状态。
+    void notifySessionCleared();
 
     /// 全量目录（登记 / 测试）；不含编排裁剪。
     QList<ToolSpec> allSpecs() const;

@@ -249,6 +249,7 @@ void onUnitStateChanged(Agent *unit) override
 
 - 每个脚本一个长驻进程：懒启动；崩溃自动重启；sync 型空闲超时回收（`setIdleTimeoutMs`），push 型常驻；单次调用超时杀进程（`setInvokeTimeoutMs`）
 - **会话关闭（协调器析构）时**：所有脚本进程关闭、临时工具文件删除——`AbstractToolSource::sessionClosing` 钩子，宿主无需手动清理
+- **会话清空（`AgentSession::clear()`）时**：脚本进程全部关闭、临时工具注销（文件删除）、订阅清空；持久工具保留，下次调用懒重启进程——`sessionCleared` 钩子
 - 文件按 `<目录>/<agentId>/<name>.<ext>` 组织；首行 `@tool {...}` manifest 声明 spec
 - 脚本工具默认 `Write` 权限（任意代码）；谁能调用仍由 `toolVisible` 裁，审批走 `evaluatePermission`
 - 删除/暂停的归属边界在配方（`toolVisible`），内核不内置「只有创建者能删」

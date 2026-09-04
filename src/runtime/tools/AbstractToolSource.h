@@ -72,6 +72,10 @@ public:
     /// 有进程/临时资源的源在此收尾（杀进程、删临时文件）；默认空。
     virtual void sessionClosing() {}
 
+    /// 会话清空通知：AgentSession::clear()（单元全删、会话继续）时调用。
+    /// 源应丢弃单元级状态（订阅、临时工具、进程）；持久资源保留。默认空。
+    virtual void sessionCleared() {}
+
 signals:
     void toolsChanged();
 };

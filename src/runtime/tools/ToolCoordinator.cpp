@@ -242,6 +242,15 @@ QString ToolCoordinator::sourceOwner(AbstractToolSource *source) const
     return m_sourceOwners.value(source);
 }
 
+void ToolCoordinator::notifySessionCleared()
+{
+    for (AbstractToolSource *source : sources()) {
+        if (source) {
+            source->sessionCleared();
+        }
+    }
+}
+
 QList<AbstractToolSource *> ToolCoordinator::sources() const
 {
     QList<AbstractToolSource *> out;

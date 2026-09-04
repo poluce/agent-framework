@@ -298,18 +298,31 @@ ScriptToolSource::~ScriptToolSource()
 
 void ScriptToolSource::sessionClosing()
 {
+    resetSessionState();
+    m_session = nullptr;
+}
+
+void ScriptToolSource::sessionCleared()
+{
+    resetSessionState();
+}
+
+void ScriptToolSource::resetSessionState()
+{
     for (ScriptProcess *proc : std::as_const(m_processes)) {
         proc->stop();
     }
     m_processes.clear();
-    // 临时工具：会话结束删除文件（持久工具文件保留，重启扫描加载）
-    for (const ScriptTool &tool : std::as_const(m_tools)) {
-        if (tool.ephemeral) {
-            QFile::remove(tool.filePath);
+    m_subscribers.clear();
+    // 临时工具：注销并删文件（持久工具保留，重启扫描加载）
+    for (auto it = m_tools.begin(); it != m_tools.end();) {
+        if (it->ephemeral) {
+            QFile::remove(it->filePath);
+            it = m_tools.erase(it);
+        } else {
+            ++it;
         }
     }
-    m_subscribers.clear();
-    m_session = nullptr;
 }
 
 void ScriptToolSource::setToolDirectory(const QString &dir)
