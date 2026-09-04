@@ -2,6 +2,34 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - 2026-09-04
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `config` 工具**写白名单收窄**：`approvalMode` / `toolScope` / `providerType` / `workingDirectory` 及只读投影（`contextWindow` / `maxOutputTokens` / `maxOutputTokensSource`）不再可由 agent 修改（读取不受限）。宿主/配方若依赖 agent 自改这些键，需迁移到宿主侧或配方工具
+
+### 🟢 新增功能
+
+- **脚本工具桥 `ScriptToolSource`**：磁盘脚本（py/js/ts）→ 内核工具；agent 可运行时用 `create_tool` / `delete_tool` 自加/删除工具（同名覆盖=更新，`keep_file`=暂停）
+- **异步推送通道**：`AbstractUnit::enqueueInboxMessage(UnitInboxMessage)`——push 型工具事件经邮箱投递，配方照常 take/ack/投递（监控工具）
+- **工具源生命周期钩子**：`AbstractToolSource::sessionClosing`（会话销毁）/ `sessionCleared`（会话清空）——脚本进程/临时资源确定性收尾，宿主无需手动清理
+- `config("systemPromptAppend", ...)`：追加到用户提示词并持久化（agent 固化经验的安全通道；只追加不重写）
+- `ToolCoordinator::removeSource` / `sourceOwner`：工具源注销与登记归属查询
+
+### 🟡 功能修改
+
+- `config("systemPrompt", ...)` 现在**持久化**到用户提示词文件（宿主配置 `PromptPaths.userPromptFile` 后生效）；工具描述枚举全部可写键与示例
+- `config` 工具描述与读写语义更新：`SessionRuntime.systemPrompt` 字段标注「仅宿主查询用」，不参与系统提示词拼装（拼装走 `SystemPromptBuilder` 体系）
+- `AbstractToolSource` 新增 `sessionClosing` / `sessionCleared` 虚方法（默认空，非破坏性）
+- `ToolCoordinator::addSource` 增加 `ownerAgentId` 参数（内核内调用点已同步）
+- `SystemPromptBuilder` 信号改名 `environmentDetected()`（原 `environmentReady` 与查询方法同名导致订阅方无法 connect；此前无人可订阅，实际零破坏）
+
+### 🔵 修复
+
+- #26 #27：`AbstractLoop.h` 聚合头改为直接 include `ProviderEvent.h`（缩小传递 include 面）
+- #28：删除流式文本增量 per-delta DEBUG 日志（正常使用噪音过大）
+- #29：`SystemPromptBuilder` 信号与查询方法同名，订阅方无法 connect
+
 ## [0.5.1] - 2026-09-04
 
 ### 🔴 Breaking Changes（升级前必看）

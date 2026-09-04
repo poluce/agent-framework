@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.5.1**。只依赖 Qt 6 Core + Network + Concurrent。
+本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.5.2**。只依赖 Qt 6 Core + Network + Concurrent。
 
 不是 GUI/TUI 手册，也不是 Host 协议。宿主怎么把本内核嵌进桌面应用，见上层产品仓的 `docs/agent-framework.md`。
 
