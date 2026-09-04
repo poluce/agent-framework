@@ -241,7 +241,7 @@ SystemPromptBuilder::SystemPromptBuilder(PromptPaths paths, QObject *parent)
     connect(m_envWatcher, &QFutureWatcher<QString>::finished, this, [this]() {
         m_cachedEnvBlock = m_envWatcher->result();
         m_envReady = true;
-        emit environmentReady();
+        emit environmentDetected();
     });
 }
 
@@ -250,7 +250,7 @@ void SystemPromptBuilder::prepare()
     m_baseBehavior = loadBaseBehavior();
     m_userCustomPrompt = loadUserPromptFile();
     invalidateStableCache();
-    // 环境块异步检测（QtConcurrent），完成后发 environmentReady()，不阻塞主线程。
+    // 环境块异步检测（QtConcurrent），完成后发 environmentDetected()，不阻塞主线程。
     m_envDetectionStarted = true;
     if (!m_envWatcher->isRunning()) {
         m_envWatcher->setFuture(QtConcurrent::run(&SystemPromptBuilder::assembleEnvBlock));
