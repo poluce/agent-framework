@@ -27,6 +27,17 @@ else()
     set(AGENT_FRAMEWORK_SOURCE_DIR "${AGENT_FRAMEWORK_ROOT}")
 endif()
 
+# 覆盖率构建（GCC/Clang）：--coverage 插桩。报告生成见 scripts/coverage.ps1。
+option(AGENT_FRAMEWORK_COVERAGE "Build with coverage instrumentation" OFF)
+if(AGENT_FRAMEWORK_COVERAGE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(--coverage)
+        add_link_options(--coverage)
+    else()
+        message(FATAL_ERROR "AGENT_FRAMEWORK_COVERAGE=ON 仅支持 GCC/Clang")
+    endif()
+endif()
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
