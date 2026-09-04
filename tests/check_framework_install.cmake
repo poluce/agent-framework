@@ -1,6 +1,6 @@
 # Install AgentFramework component into PREFIX, assert public layout,
 # then configure+build+run framework/examples/minimal against the prefix.
-# 产品二次配置：USE_INSTALLED=ON 且 BUILD_TESTS=ON（只编框架测试）。
+# 只验证内核自己的安装包闭包；产品仓兼容性由产品仓自行负责（见 poluce/agent#21）。
 # Expects: BUILD_DIR, PREFIX, CMAKE_COMMAND (set by cmake -P).
 # Optional for the example: EXAMPLE_SRC, CMAKE_GENERATOR, CMAKE_CXX_COMPILER,
 # CMAKE_MAKE_PROGRAM, QT6_DIR, CMAKE_BUILD_TYPE.
@@ -183,91 +183,3 @@ if(NOT _rc EQUAL 0)
     message(FATAL_ERROR "example run failed (${_rc}):\n${_out}\n${_err}")
 endif()
 
-if(NOT PRODUCT_SRC)
-    return()
-endif()
-if(NOT EXISTS "${PRODUCT_SRC}/CMakeLists.txt")
-    message(FATAL_ERROR "missing product source: ${PRODUCT_SRC}")
-endif()
-
-set(_prod_build "${PREFIX}/_product_build")
-set(_prod_args
-    "-S" "${PRODUCT_SRC}"
-    "-B" "${_prod_build}"
-    "-DCMAKE_PREFIX_PATH=${_prefix_path_arg}"
-    "-DAgentFramework_DIR=${_cmake}"
-    "-DAGENT_QT_USE_INSTALLED_FRAMEWORK=ON"
-    "-DAGENT_QT_BUILD_TESTS=ON")
-if(CMAKE_GENERATOR)
-    list(APPEND _prod_args "-G" "${CMAKE_GENERATOR}")
-endif()
-if(CMAKE_CXX_COMPILER)
-    list(APPEND _prod_args "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
-endif()
-if(CMAKE_C_COMPILER)
-    list(APPEND _prod_args "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
-endif()
-if(CMAKE_MAKE_PROGRAM)
-    list(APPEND _prod_args "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
-endif()
-if(CMAKE_BUILD_TYPE)
-    list(APPEND _prod_args "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}")
-else()
-    list(APPEND _prod_args "-DCMAKE_BUILD_TYPE=Debug")
-endif()
-if(QT6_DIR)
-    list(APPEND _prod_args "-DQt6_DIR=${QT6_DIR}")
-endif()
-
-execute_process(
-    COMMAND "${CMAKE_COMMAND}" ${_prod_args}
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err)
-if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR "product-against-framework configure failed (${_rc}):\n${_out}\n${_err}")
-endif()
-
-execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_prod_build}"
-            --target agent_app agent_framework_host_turn_tests
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err)
-if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR "product-against-framework build agent_app/host_turn failed (${_rc}):\n${_out}\n${_err}")
-endif()
-
-if(WIN32)
-    set(_host_name "agent_framework_host_turn_tests.exe")
-else()
-    set(_host_name "agent_framework_host_turn_tests")
-endif()
-set(_host_bin "")
-foreach(_cand IN ITEMS
-        "${_prod_build}/${_host_name}"
-        "${_prod_build}/framework/tests/${_host_name}"
-        "${_prod_build}/framework/tests/${CMAKE_BUILD_TYPE}/${_host_name}"
-        "${_prod_build}/tests/framework_tests/${_host_name}")
-    if(_cand AND EXISTS "${_cand}")
-        set(_host_bin "${_cand}")
-        break()
-    endif()
-endforeach()
-if(NOT _host_bin)
-    file(GLOB_RECURSE _hits LIST_DIRECTORIES false "${_prod_build}/*/${_host_name}")
-    if(_hits)
-        list(GET _hits 0 _host_bin)
-    endif()
-endif()
-if(NOT _host_bin)
-    message(FATAL_ERROR "product-against-framework host-turn missing under ${_prod_build}\nbuild:\n${_out}\n${_err}")
-endif()
-execute_process(
-    COMMAND "${_host_bin}"
-    RESULT_VARIABLE _rc
-    OUTPUT_VARIABLE _out
-    ERROR_VARIABLE _err)
-if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR "product-against-framework host-turn run failed (${_rc}):\n${_out}\n${_err}")
-endif()
