@@ -99,9 +99,6 @@ if(NOT AGENT_QT_USE_INSTALLED_FRAMEWORK)
         "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
         "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
         "-DQT6_DIR=${Qt6_DIR}")
-    if(NOT _standalone)
-        list(APPEND _install_args "-DPRODUCT_SRC=${CMAKE_SOURCE_DIR}")
-    endif()
     add_test(
         NAME agent_framework_install_layout
         COMMAND ${CMAKE_COMMAND} ${_install_args} -P "${_fw_check}")
