@@ -288,7 +288,7 @@ bool BuiltinToolRuntime::isRunning() const
     return m_running || (m_runCommandTool && m_runCommandTool->isRunning());
 }
 
-void BuiltinToolRuntime::setSession(AgentSession *session)
+void BuiltinToolRuntime::setSession(AbstractSession *session)
 {
     m_runCommandTool->setSession(session);
 }

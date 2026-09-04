@@ -1,17 +1,15 @@
 #pragma once
 
-#include "agent/Agent.h"
-#include "agent/AgentSession.h"
-#include "config/SystemPromptBuilder.h"
 #include <QJsonDocument>
 
 #include "tools/AbstractSessionTool.h"
+#include "tools/SessionToolContext.h"
 
 class ConfigTool : public AbstractSessionTool
 {
 public:
     [[nodiscard]] ToolSpec spec() const override;
-    ToolResult execute(Agent *caller,
+    ToolResult execute(SessionToolContext *ctx,
                        const ToolCall &call,
                        const QString &workingDirectory) override;
 };
@@ -28,7 +26,7 @@ inline ToolSpec ConfigTool::spec() const
         .build();
 }
 
-inline ToolResult ConfigTool::execute(Agent *caller, const ToolCall &call, const QString &workingDirectory)
+inline ToolResult ConfigTool::execute(SessionToolContext *ctx, const ToolCall &call, const QString &workingDirectory)
 {
     Q_UNUSED(workingDirectory);
 
@@ -38,8 +36,7 @@ inline ToolResult ConfigTool::execute(Agent *caller, const ToolCall &call, const
         return makeError(call, QStringLiteral("Config 缺少 setting。"));
     }
 
-    AgentSession *session = qobject_cast<AgentSession*>(caller->parent());
-    if (!session) {
+    if (!ctx || !ctx->session()) {
         return makeError(call, QStringLiteral("会话状态不存在"));
     }
 
@@ -47,14 +44,12 @@ inline ToolResult ConfigTool::execute(Agent *caller, const ToolCall &call, const
         return (key == QStringLiteral("model")) ? QStringLiteral("modelName") : key;
     };
 
-    auto getValue = [session, &resolveKey](const QString &key) -> QJsonValue {
+    auto getValue = [ctx, &resolveKey](const QString &key) -> QJsonValue {
         if (key == QStringLiteral("systemPrompt")) {
-            return session->promptBuilder()
-                ? session->promptBuilder()->userCustomPrompt()
-                : QString();
+            return ctx->userCustomPrompt();
         }
         const QString propertyName = resolveKey(key);
-        const QJsonObject json = session->runtime().toJson();
+        const QJsonObject json = ctx->runtime().toJson();
         if (!json.contains(propertyName)) {
             return QJsonValue(QJsonValue::Undefined);
         }
@@ -85,14 +80,12 @@ inline ToolResult ConfigTool::execute(Agent *caller, const ToolCall &call, const
                                   : QString::fromUtf8(QJsonDocument(QJsonArray{value}).toJson(QJsonDocument::Compact)).mid(1).chopped(1);
 
     if (setting == QStringLiteral("systemPrompt")) {
-        if (session->promptBuilder()) {
-            session->promptBuilder()->setUserCustomPrompt(valueText);
-        }
+        ctx->setUserCustomPrompt(valueText);
     } else if (setting == QStringLiteral("workingDirectory")) {
-        session->setSessionWorkingDirectory(valueText);
+        ctx->setSessionWorkingDirectory(valueText);
     } else {
         // getValue 已确认键存在；setRuntimeField 失败仅表示规范化后无变化（幂等）。
-        session->setRuntimeField(resolveKey(setting), value.toVariant());
+        ctx->setRuntimeField(resolveKey(setting), value.toVariant());
     }
 
     result.success = true;

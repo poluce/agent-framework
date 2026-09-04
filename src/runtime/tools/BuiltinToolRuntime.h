@@ -13,7 +13,7 @@
 #include <memory>
 
 class AbstractBuiltinTool;
-class AgentSession;
+class AbstractSession;
 class RunCommandTool;
 class WriteCoordinator;
 
@@ -52,7 +52,7 @@ public:
     void setLogContext(const AgentLogContext &logContext);
     void clearReadFileStates();
     void setResultStoreDirectory(const QString &directoryPath);
-    void setSession(AgentSession *session);
+    void setSession(AbstractSession *session);
     /** 接入会话级写协调器（per-file 互斥）；nullptr 退化为无协调（零开销）。 */
     void setWriteCoordinator(WriteCoordinator *coordinator);
 

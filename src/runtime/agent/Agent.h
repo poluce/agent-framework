@@ -8,6 +8,7 @@
 #include "agent/compact/SummaryJobQueue.h"
 #include "agent/compact/SummaryStore.h"
 #include "config/SessionRuntime.h"
+#include "tools/AbstractUnit.h"
 #include "types/CoreEvent.h"
 #include <QDateTime>
 #include <QJsonObject>
@@ -42,7 +43,7 @@ struct AgentInboxMessage
 class AbstractOrchestration;
 class ToolCoordinator;
 
-class Agent : public QObject
+class Agent : public QObject, public AbstractUnit
 {
     Q_OBJECT
 
@@ -59,7 +60,7 @@ public:
     ~Agent() override;
 
     // ── 标识 ──
-    QString agentId() const;
+    QString agentId() const override;
     QString displayName() const;
     QString parentAgentId() const;
     void setParentAgentId(const QString &parentAgentId);
@@ -109,6 +110,15 @@ public:
     void setSessionUuid(const QString &uuid);
     AgentTaskManager *taskManager() const;
 
+    // ── AbstractUnit（工具层窄视图）──
+    QJsonArray todos() const override { return taskManager() ? taskManager()->todos() : QJsonArray(); }
+    void setTodos(const QJsonArray &todos) override
+    {
+        if (taskManager()) {
+            taskManager()->setTodos(todos);
+        }
+    }
+
     // ── 操作 ──
     void submitUserMessageWithSkill(const QString &message,
                                     const QStringList &filePaths,
@@ -135,7 +145,7 @@ public:
     void approvePendingAction();
     void rejectPendingAction();
     void submitQuestionAnswer(int questionIndex, const QString &answer);
-    void appendSessionEvent(const QString &text);
+    void appendSessionEvent(const QString &text) override;
 
     /**
      * 手动压缩（Host CompactSession）：绕过 token 门控，共用 CompactEngine。

@@ -1,7 +1,8 @@
 #include "RunCommandTool.h"
 
-#include "agent/Agent.h"
-#include "agent/AgentSession.h"
+#include "tools/AbstractSession.h"
+#include "tools/AbstractUnit.h"
+#include "tools/BuiltinToolRuntime.h"
 #include "logging/LogManager.h"
 
 #include <QCoreApplication>
@@ -307,7 +308,7 @@ RunCommandTool::ShellConfig RunCommandTool::resolveShellCommand(
 // ------------------------------------------------------------------
 // 构造 / 析构
 // ------------------------------------------------------------------
-RunCommandTool::RunCommandTool(QObject *parent, AgentSession *session)
+RunCommandTool::RunCommandTool(QObject *parent, AbstractSession *session)
     : QObject(parent)
     , m_session(session)
 {
@@ -706,8 +707,8 @@ std::optional<ToolResult> RunCommandTool::handleBackgroundCommand(
         }
 
         if (!it->notified && m_session) {
-            if (Agent *agent = m_session->findById(agentId)) {
-                agent->appendSessionEvent(QStringLiteral("后台任务 %1 已结束，可用 agent_status 查看状态。").arg(taskId));
+            if (AbstractUnit *unit = m_session->findUnit(agentId)) {
+                unit->appendSessionEvent(QStringLiteral("后台任务 %1 已结束，可用 agent_status 查看状态。").arg(taskId));
             }
             LOGI(LogCat::Tool, m_logContext) << "后台命令结束"
                 << logf("taskId", taskId)

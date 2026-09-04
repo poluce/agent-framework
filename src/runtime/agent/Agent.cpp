@@ -176,9 +176,11 @@ void Agent::setCoordinator(ToolCoordinator *coordinator)
 
 AbstractOrchestration *Agent::orchestration() const
 {
-    return m_coordinator && m_coordinator->session()
-        ? m_coordinator->session()->orchestration()
-        : nullptr;
+    if (!m_coordinator) {
+        return nullptr;
+    }
+    auto *session = static_cast<AgentSession *>(m_coordinator->session());
+    return session ? session->orchestration() : nullptr;
 }
 
 void Agent::ensureSegmentSummaryPipeline()

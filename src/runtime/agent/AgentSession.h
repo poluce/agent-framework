@@ -7,6 +7,7 @@
 
 #include "AbstractOrchestration.h"
 #include "Agent.h"
+#include "tools/AbstractSession.h"
 #include "types/CoreEvent.h"
 #include "types/CoreEventChannel.h"
 #include "config/SessionRuntime.h"
@@ -50,7 +51,7 @@ struct AgentSessionConfig
 
 /// 执行单元表：登记 / 查找 / 喂任务。编排是可选配方，不是会话身份。
 /// 接收 AgentSessionConfig，内部闭环单元 wiring（配置、工具、handler）。
-class AgentSession : public QObject
+class AgentSession : public QObject, public AbstractSession
 {
     Q_OBJECT
 
@@ -59,9 +60,22 @@ public:
     ~AgentSession() override;
 
     ToolCoordinator *coordinator() const;
-    [[nodiscard]] FileSkillLoader *skillLoader() const { return m_config.skillLoader; }
+    [[nodiscard]] FileSkillLoader *skillLoader() const override { return m_config.skillLoader; }
     [[nodiscard]] SystemPromptBuilder *promptBuilder() const { return m_config.promptBuilder; }
     [[nodiscard]] AbstractOrchestration *orchestration() const { return m_config.orchestration; }
+
+    // ── AbstractSession（工具层窄视图）──
+    AbstractUnit *findUnit(const QString &agentId) const override { return findById(agentId); }
+    bool toolVisible(AbstractUnit *unit,
+                     const QString &sourceId,
+                     const QString &toolName) const override
+    {
+        return m_config.orchestration
+            ? m_config.orchestration->toolVisible(static_cast<const Agent *>(unit), sourceId, toolName)
+            : true;
+    }
+    QString userCustomPrompt() const override;
+    void setUserCustomPrompt(const QString &text) override;
     static AgentSession *fromAgent(Agent *agent)
     {
         return agent ? qobject_cast<AgentSession *>(agent->parent()) : nullptr;
@@ -71,11 +85,11 @@ public:
     void setMaxRetries(int retries);
 
     /// 会话唯一活运行时配置（非 Agent 执行副本）。
-    const SessionRuntime &runtime() const;
+    const SessionRuntime &runtime() const override;
     /// 整表替换并规范化；变更字段逐条 EventConfigChanged，再同步主单元（若有）。
     void setRuntime(const SessionRuntime &runtime);
     /// 单字段更新（规范化）；返回是否实际变更。
-    bool setRuntimeField(const QString &key, const QVariant &value);
+    bool setRuntimeField(const QString &key, const QVariant &value) override;
     /**
      * 批量更新 runtime 字段（Host SetSessionConfig.patch）。
      * 全有或全无：任一键写失败则不改 m_runtime；成功时变更字段逐条 EventConfigChanged，
@@ -85,7 +99,7 @@ public:
     bool setRuntimeFields(const QJsonObject &patch);
     void applyRuntimeToPrimary();
     QString workingDirectory() const;
-    void setSessionWorkingDirectory(const QString &workingDirectory);
+    void setSessionWorkingDirectory(const QString &workingDirectory) override;
 
     // ── 会话标识 ──
     QString sessionId() const;

@@ -34,11 +34,11 @@ providers/service/ProviderCredential.h
 
 ---
 
-### [ ] 2. `tools → agent` 依赖（工具层反向依赖执行单元）
+### [x] 2. `tools → agent` 依赖（工具层反向依赖执行单元）
 
-**状态**：待办（未开始）
+**状态**：已解决（2026-09-04，`refactor/decouple-modules`）
 
-**问题**：`tools` 模块反向依赖 `agent` 模块：
+**问题**：`tools` 模块反向依赖 `agent` 模块（实为模块级环：`agent` 也正向依赖 `tools`）：
 
 ```
 tools/ToolCoordinator.cpp        → agent/AbstractOrchestration.h、agent/Agent.h、agent/AgentSession.h
@@ -48,20 +48,23 @@ tools/session/AgentTodoWriteTool.h → agent/Agent.h
 tools/builtin/RunCommandTool.cpp → agent/Agent.h、agent/AgentSession.h
 ```
 
-**根因**：工具运行时需要访问会话/执行单元（拿配置、写 todo、广播路径等），直接依赖了具体类。
+**根因**：工具运行时需要访问会话/执行单元（拿配置、写 todo、广播路径等），直接依赖了具体类；`ConfigTool` 甚至用 `qobject_cast<AgentSession*>(caller->parent())` 隐式约定取会话。
 
-**建议方向**：
+**修法**：消费方定义窄接口，agent 侧实现：
 
-- 引入接口层（如 `AbstractSession` / `AbstractUnit`），`tools` 只依赖接口，不依赖 `agent` 具体类
-- 或把工具需要的会话能力收敛为窄接口（如 `SessionToolContext`），由 `agent` 侧实现注入
+- 新增 `tools/AbstractUnit.h`（agentId / todos / setTodos / appendSessionEvent）与 `tools/AbstractSession.h`（findUnit / toolVisible / skillLoader / runtime / setRuntimeField / setSessionWorkingDirectory / userCustomPrompt / setUserCustomPrompt），由 `Agent` / `AgentSession` 实现
+- 新增 `tools/SessionToolContext.h`（session + caller 包装），`AbstractSessionTool::execute/tryExecuteAsync` 入参由 `Agent*` 改为 `SessionToolContext*`（**breaking**，产品仓工具需跟随）
+- `ConfigTool` 的 `parent()` hack 消除；`ToolCoordinator` / `SessionToolRuntime` / `RunCommandTool` / `BuiltinToolRuntime` 全部改持 `AbstractSession*`
+- `tools/` 不再 include `agent/` 任何头
 
 **影响面**：
 
-- 新增接口头 + 实现适配，改动中等
-- 公开头路径可能变化（breaking）
-- 需要同步更新测试与文档
+- `AbstractSessionTool` 公开签名变化（`Agent*` → `SessionToolContext*`，breaking）
+- 新增 3 个公开头（`tools/AbstractSession.h` / `AbstractUnit.h` / `SessionToolContext.h`）
+- 涉及 `tools/` 7 个文件 + `agent/` 4 个文件 + CMake 公开头闭包
+- 测试与文档已同步
 
-**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。`AgentMode` 依赖已随目录调整解开（`agent/AgentMode.h` → `config/AgentMode.h`），剩余为上述会话/单元依赖。
+**备注**：2026-09-03 目录调整审计时发现，属**重构前已存在**的耦合，非本次引入。`AgentMode` 依赖已随目录调整解开（`agent/AgentMode.h` → `config/AgentMode.h`），本次解决剩余会话/单元依赖。
 
 ---
 

@@ -1,14 +1,13 @@
 #pragma once
 
-#include "agent/Agent.h"
-
 #include "tools/AbstractSessionTool.h"
+#include "tools/SessionToolContext.h"
 
 class AgentTodoWriteTool : public AbstractSessionTool
 {
 public:
     [[nodiscard]] ToolSpec spec() const override;
-    ToolResult execute(Agent *caller,
+    ToolResult execute(SessionToolContext *ctx,
                        const ToolCall &call,
                        const QString &workingDirectory) override;
 };
@@ -59,7 +58,7 @@ inline ToolSpec AgentTodoWriteTool::spec() const
         .build();
 }
 
-inline ToolResult AgentTodoWriteTool::execute(Agent *caller, const ToolCall &call, const QString &workingDirectory)
+inline ToolResult AgentTodoWriteTool::execute(SessionToolContext *ctx, const ToolCall &call, const QString &workingDirectory)
 {
     Q_UNUSED(workingDirectory);
     const QJsonArray todos = call.input.value(QStringLiteral("todos")).toArray();
@@ -80,11 +79,11 @@ inline ToolResult AgentTodoWriteTool::execute(Agent *caller, const ToolCall &cal
         }
     }
 
-    const int previousSize = caller->taskManager()->todos().size();
-    caller->taskManager()->setTodos(allCompleted ? QJsonArray{} : todos);
+    const int previousSize = ctx->todos().size();
+    ctx->setTodos(allCompleted ? QJsonArray{} : todos);
 
     return makeSuccess(call,
                        QStringLiteral("已更新 todo 列表：%1 项（之前 %2 项）。").arg(todos.size()).arg(previousSize),
                        QStringLiteral("agentTodoWriteResult"),
-                       QJsonObject{{QStringLiteral("todos"), caller->taskManager()->todos()}});
+                       QJsonObject{{QStringLiteral("todos"), ctx->todos()}});
 }

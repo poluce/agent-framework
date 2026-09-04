@@ -9,15 +9,15 @@
 
 #include "tools/BuiltinToolRuntime.h"
 #include "tools/AbstractSessionTool.h"
+#include "tools/AbstractSession.h"
 
-class AgentSession;
-class Agent;
+class SessionToolContext;
 
 class SessionToolRuntime : public QObject
 {
     Q_OBJECT
 public:
-    explicit SessionToolRuntime(AgentSession *session, QObject *parent = nullptr);
+    explicit SessionToolRuntime(AbstractSession *session, QObject *parent = nullptr);
     ~SessionToolRuntime() override;
 
     using Completion = BuiltinToolRuntime::Completion;
@@ -32,11 +32,11 @@ public:
     /// 返回工具实例（按名称），可能为空
     std::shared_ptr<AbstractSessionTool> findByName(const QString &name) const;
 
-    AgentSession *session() const { return m_session; }
+    AbstractSession *session() const { return m_session; }
 
 private:
     void registerTool(std::shared_ptr<AbstractSessionTool> tool);
 
-    AgentSession *m_session;
+    AbstractSession *m_session;
     QHash<QString, std::shared_ptr<AbstractSessionTool>> m_tools;
 };

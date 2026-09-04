@@ -250,7 +250,7 @@ void AbstractLoop::setCoordinator(ToolCoordinator *coordinator)
     }
     m_coordinator = coordinator;
     if (coordinator) {
-        AgentSession *session = coordinator->session();
+        auto *session = static_cast<AgentSession *>(coordinator->session());
         m_builtinRuntime.setSession(session);
         // 会话级写协调器：per-file 互斥跨 Agent 共享（nullptr 安全）
         m_builtinRuntime.setWriteCoordinator(session ? session->writeCoordinator() : nullptr);
@@ -264,7 +264,7 @@ void AbstractLoop::setCoordinator(ToolCoordinator *coordinator)
 void AbstractLoop::refreshAgentType()
 {
     if (m_coordinator) {
-        if (AgentSession *session = m_coordinator->session()) {
+        if (auto *session = static_cast<AgentSession *>(m_coordinator->session())) {
             if (Agent *unit = session->findById(m_agentId)) {
                 m_agentType = session->isPrimary(unit)
                     ? QStringLiteral("main")
@@ -382,7 +382,7 @@ AgentPromptContext AbstractLoop::buildPromptContext(const SessionRuntime &config
     ctx.workspacePath = config.workingDirectory;
     ctx.defaultShell = config.defaultShell;
     if (m_coordinator) {
-        if (AgentSession *session = m_coordinator->session()) {
+        if (auto *session = static_cast<AgentSession *>(m_coordinator->session())) {
             if (AbstractOrchestration *orch = session->orchestration()) {
                 ctx.rolePromptFile = orch->rolePromptFile(session->findById(m_agentId));
             }
