@@ -50,6 +50,15 @@ public:
         return true;
     }
 
+    /// 该单元是否可见该技能（skillName = 技能目录名，如 "git"）。默认全可见。
+    /// 内核按单元组装 <available_skills> 块时逐技能询问。
+    [[nodiscard]] virtual bool skillVisible(const Agent *unit, const QString &skillName) const
+    {
+        Q_UNUSED(unit);
+        Q_UNUSED(skillName);
+        return true;
+    }
+
     /// 系统提示角色模板文件名（仅 basename，禁止路径分隔符）。空 = 不拼角色块。
     /// 解析根：`:/system_prompts/`（内置 qrc）与 `<可执行文件目录>/system_prompts/`
     /// （外部目录；同名文件追加不覆盖）。

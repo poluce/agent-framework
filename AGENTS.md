@@ -116,6 +116,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | `onUnitsClearing()` | 空 | 清团队、清排队、清主单元 id |
 | `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 对非主单元隐藏 spawn/config/mcp 等 |
+| `skillVisible(unit, skillName)` | 全可见 | 按单元裁剪 `<available_skills>` 块（skillName = 技能目录名）；内核按单元组装 |
 | `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/` |
 | 模式文案 | 策略填 `AgentPromptContext.modePromptFile` | 只返回 basename。内核 `SystemPromptBuilder` 不认 `AgentMode` |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |

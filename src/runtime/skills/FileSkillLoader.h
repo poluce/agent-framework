@@ -35,6 +35,8 @@ public:
     [[nodiscard]] QList<FileSkill> userInvocableSkills() const;
     /// 组装 <available_skills> 系统提示块；无可用技能时返回空串
     [[nodiscard]] QString availableSkillsPromptBlock() const;
+    /// 从给定技能列表组装提示块（供按单元过滤后复用；空列表返回空串）
+    [[nodiscard]] static QString buildSkillsPromptBlock(const QList<FileSkill> &skills);
 
     // 解析单个 SKILL.md
     static std::optional<FileSkill> parseSkillFile(const QString &filePath);

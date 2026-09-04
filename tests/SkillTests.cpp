@@ -1,6 +1,8 @@
 #include <QtTest>
 
+#include "agent/AbstractOrchestration.h"
 #include "agent/Agent.h"
+#include "agent/AgentSession.h"
 #include "config/SessionRuntime.h"
 #include "providers/core/AbstractProvider.h"
 #include "providers/ProviderTypes/ProviderAdapterTypes.h"
@@ -34,6 +36,8 @@ private slots:
     void loader_loadAndFind();
     void loader_userInvocableAndPromptBlock();
     void loader_removeAndCaseInsensitive();
+    void buildSkillsPromptBlock_pure();
+    void perUnitSkillsBlock_filteredBySkillVisible();
     void service_visibleSkillMessage();
     void service_submitWithSkill();
 };
@@ -103,6 +107,24 @@ protected:
 };
 
 ProviderRequest SkillFakeProvider::s_lastRequest;
+
+// 最小编排：skillVisible 按白名单裁剪
+class TestOrchestration final : public AbstractOrchestration
+{
+public:
+    QStringList visibleSkills;
+
+    AbstractToolSource *toolSource() override { return nullptr; }
+    void attach(AgentSession *session) override { m_session = session; }
+    void detach() override { m_session = nullptr; }
+    bool skillVisible(const Agent *unit, const QString &skillName) const override
+    {
+        Q_UNUSED(unit);
+        return visibleSkills.contains(skillName);
+    }
+
+    AgentSession *m_session = nullptr;
+};
 
 } // namespace
 
@@ -275,6 +297,80 @@ void SkillTests::loader_removeAndCaseInsensitive()
 
     loader.removeSkillDirectory(tmp.path());
     QVERIFY(loader.loadAll().isEmpty());
+}
+
+void SkillTests::buildSkillsPromptBlock_pure()
+{
+    QCOMPARE(FileSkillLoader::buildSkillsPromptBlock({}), QString());
+
+    FileSkill git;
+    git.dirName = QStringLiteral("git");
+    git.description = QStringLiteral("Git 助手");
+    FileSkill bash;
+    bash.dirName = QStringLiteral("bash");
+    bash.description = QStringLiteral("Shell 助手");
+
+    const QString block = FileSkillLoader::buildSkillsPromptBlock({git, bash});
+    QVERIFY(block.contains(QStringLiteral("<available_skills>")));
+    QVERIFY(block.contains(QStringLiteral("/git — Git 助手")));
+    QVERIFY(block.contains(QStringLiteral("/bash — Shell 助手")));
+    QVERIFY(block.contains(QStringLiteral("</available_skills>")));
+}
+
+void SkillTests::perUnitSkillsBlock_filteredBySkillVisible()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY(writeSkillFile(tmp.path() + QStringLiteral("/git"), QStringLiteral("SKILL.md"),
+        skillMd(QStringLiteral("name: git\ndescription: Git 助手"), QStringLiteral("正文"))));
+    QVERIFY(writeSkillFile(tmp.path() + QStringLiteral("/bash"), QStringLiteral("SKILL.md"),
+        skillMd(QStringLiteral("name: bash\ndescription: Shell 助手"), QStringLiteral("正文"))));
+
+    FileSkillLoader loader;
+    loader.addSkillDirectory(tmp.path());
+
+    TestOrchestration orch;
+    orch.visibleSkills = {QStringLiteral("git")};
+
+    ProviderCredential cred;
+    const QString instanceId = cred.createInstance(QStringLiteral("skill-test"),
+                                                   QStringLiteral("skill"),
+                                                   QStringLiteral("https://example.test"),
+                                                   QStringLiteral("key"));
+    QVERIFY(!instanceId.isEmpty());
+
+    SessionRuntime defaults;
+    defaults.workingDirectory = tmp.path();
+    defaults.systemPrompt = QStringLiteral("技能测试");
+    defaults.compactEnabled = false;
+    defaults.providerType = QStringLiteral("skill-test");
+    defaults.credentialInstanceId = instanceId;
+
+    AgentSessionConfig cfg;
+    cfg.globalDefaults = &defaults;
+    cfg.credentialStore = &cred;
+    cfg.skillLoader = &loader;
+    cfg.orchestration = &orch;
+    cfg.providerFactory = [](const QString &) {
+        return std::make_unique<SkillFakeProvider>();
+    };
+
+    AgentSession session(cfg);
+    session.setRuntime(defaults);
+    Agent *agent = session.insertUnit(QStringLiteral("agent-0"), QStringLiteral("测试"));
+    QVERIFY(agent);
+
+    // 开一轮 → 假 Provider 捕获请求 → 系统提示词只含 git 技能块
+    SkillFakeProvider::s_lastRequest = ProviderRequest{};
+    QVERIFY(agent->submitUserDelivery(QStringLiteral("hello"), {},
+                                      AbstractLoop::UserDelivery::NextTurn));
+    QTRY_VERIFY_WITH_TIMEOUT(!SkillFakeProvider::s_lastRequest.items.isEmpty(), 3000);
+
+    const QString systemPrompt = SkillFakeProvider::s_lastRequest.systemPrompt;
+    QVERIFY(!systemPrompt.isEmpty());
+    QVERIFY(systemPrompt.contains(QStringLiteral("<available_skills>")));
+    QVERIFY(systemPrompt.contains(QStringLiteral("/git — Git 助手")));
+    QVERIFY(!systemPrompt.contains(QStringLiteral("bash")));
 }
 
 void SkillTests::service_visibleSkillMessage()

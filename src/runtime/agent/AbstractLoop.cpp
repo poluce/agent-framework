@@ -3,6 +3,7 @@
 #include "agent/AbstractOrchestration.h"
 #include "agent/Agent.h"
 #include "agent/AgentSession.h" // writeCoordinator() 需要完整类型
+#include "skills/FileSkillLoader.h"
 #include "tools/builtin/AskQuestionTool.h"
 #include "tools/builtin/helpers/WorkspaceHelper.h" // normalizedPath（跨 Agent 广播 key 归一）
 #include "providers/service/ProviderService.h"
@@ -410,6 +411,12 @@ void AbstractLoop::applyRuntimeConfig(const SessionRuntime &config)
 
 QString AbstractLoop::assembleSystemPrompt(const SessionRuntime &config)
 {
+    // 按单元组装技能块（skillVisible 过滤）；无编排/无 loader 时保留宿主注入的块。
+    const auto skillsBlock = assembleSkillsBlockForUnit();
+    if (m_promptBuilder && skillsBlock) {
+        m_promptBuilder->setAvailableSkills(*skillsBlock);
+    }
+
     const AgentPromptContext ctx = buildPromptContext(config);
     if (m_modePolicy) {
         return m_modePolicy->buildPrompt(ctx);
@@ -418,7 +425,39 @@ QString AbstractLoop::assembleSystemPrompt(const SessionRuntime &config)
         return m_promptBuilder->buildPrompt(ctx);
     }
     SystemPromptBuilder fallback;
+    if (skillsBlock) {
+        fallback.setAvailableSkills(*skillsBlock);
+    }
     return fallback.buildPrompt(ctx);
+}
+
+std::optional<QString> AbstractLoop::assembleSkillsBlockForUnit() const
+{
+    if (!m_coordinator) {
+        return std::nullopt;
+    }
+    AbstractSession *session = m_coordinator->session();
+    if (!session) {
+        return std::nullopt;
+    }
+    FileSkillLoader *loader = session->skillLoader();
+    if (!loader) {
+        return std::nullopt;
+    }
+    auto *agentSession = static_cast<AgentSession *>(session);
+    AbstractOrchestration *orch = agentSession ? agentSession->orchestration() : nullptr;
+    if (!orch) {
+        return std::nullopt; // 无编排：保留宿主注入的技能块
+    }
+
+    QList<FileSkill> visible;
+    for (const FileSkill &skill : loader->userInvocableSkills()) {
+        if (orch->skillVisible(static_cast<Agent *>(session->findUnit(m_agentId)),
+                               skill.dirName)) {
+            visible.append(skill);
+        }
+    }
+    return FileSkillLoader::buildSkillsPromptBlock(visible);
 }
 
 void AbstractLoop::refreshModePolicyIfNeeded(const SessionRuntime &config)

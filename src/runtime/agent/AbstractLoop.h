@@ -229,6 +229,8 @@ private:
     void resetLoopState();
     void refreshModePolicyIfNeeded(const SessionRuntime &config);
     [[nodiscard]] QString assembleSystemPrompt(const SessionRuntime &config);
+    /// 按单元组装技能块（skillVisible 过滤）；无编排/无 loader 时返回 nullopt（保留宿主注入）。
+    [[nodiscard]] std::optional<QString> assembleSkillsBlockForUnit() const;
 
     // ── Turn 生命周期 ──
     bool canStartTurn();

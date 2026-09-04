@@ -287,7 +287,11 @@ QList<FileSkill> FileSkillLoader::userInvocableSkills() const
 
 QString FileSkillLoader::availableSkillsPromptBlock() const
 {
-    const QList<FileSkill> skills = userInvocableSkills();
+    return buildSkillsPromptBlock(userInvocableSkills());
+}
+
+QString FileSkillLoader::buildSkillsPromptBlock(const QList<FileSkill> &skills)
+{
     if (skills.isEmpty()) {
         return {};
     }
