@@ -5,3 +5,4 @@ CMakeUserPresets.json
 *.user
 CMakeCache.txt
 CMakeFiles/
+/coverage-report/
