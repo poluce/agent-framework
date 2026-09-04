@@ -51,6 +51,8 @@ public:
     QList<ToolSpec> specs() const override;
     bool owns(const QString &toolName) const override;
     void invoke(const ToolCall &call, const ToolInvokeContext &ctx, Completion done) override;
+    /// 会话关闭：杀全部脚本进程、删临时工具文件、清会话态（订阅/会话指针）。
+    void sessionClosing() override;
 
     // ── 探针（测试/宿主）──
     int processCount() const { return m_processes.size(); }

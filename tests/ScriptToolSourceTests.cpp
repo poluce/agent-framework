@@ -94,6 +94,7 @@ private slots:
     void deleteTool_removesAndPauses();
     void syncInvoke_endToEnd();
     void pushEvent_deliversToMailbox();
+    void sessionClose_killsProcessesAndCleansEphemeral();
     void coordinator_removeSourceAndOwner();
 };
 
@@ -413,6 +414,70 @@ void ScriptToolSourceTests::pushEvent_deliversToMailbox()
     QCOMPARE(msgs.first().payload.value(QStringLiteral("tool")).toString(),
              QStringLiteral("watch"));
     QCOMPARE(msgs.first().payload.value(QStringLiteral("n")).toInt(), 1);
+}
+
+void ScriptToolSourceTests::sessionClose_killsProcessesAndCleansEphemeral()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过会话关闭测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setEphemeralDirectory(tmp.path() + QStringLiteral("/eph"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get(\"type\") == \"invoke\":\n"
+        "        out = {\"type\": \"result\", \"id\": req[\"id\"], \"ok\": True, \"text\": \"ok\"}\n"
+        "        sys.stdout.write(json.dumps(out) + \"\\n\")\n"
+        "        sys.stdout.flush()\n");
+    const QString ephFile = tmp.path() + QStringLiteral("/eph/agent-0/tmp.py");
+    {
+        SessionRuntime defaults;
+        defaults.workingDirectory = tmp.path();
+        AgentSessionConfig cfg;
+        cfg.globalDefaults = &defaults;
+        cfg.externalToolSource = &source;
+        AgentSession session(cfg);
+        ToolInvokeContext ctx;
+        ctx.agentId = QStringLiteral("agent-0");
+        ctx.session = &session;
+
+        ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+            {QStringLiteral("name"), QStringLiteral("echo")},
+            {QStringLiteral("description"), QStringLiteral("d")},
+            {QStringLiteral("code"), code},
+            {QStringLiteral("language"), QStringLiteral("py")},
+        }, ctx);
+        QVERIFY(r.success);
+        r = invokeSync(source, QStringLiteral("create_tool"), {
+            {QStringLiteral("name"), QStringLiteral("tmp")},
+            {QStringLiteral("description"), QStringLiteral("d")},
+            {QStringLiteral("code"), code},
+            {QStringLiteral("language"), QStringLiteral("py")},
+            {QStringLiteral("ephemeral"), true},
+        }, ctx);
+        QVERIFY(r.success);
+        QVERIFY(QFile::exists(ephFile));
+
+        // 调用一次 → 进程起来
+        r = invokeSync(source, QStringLiteral("echo"), {
+            {QStringLiteral("who"), QStringLiteral("x")},
+        }, ctx);
+        QVERIFY(r.success);
+        QCOMPARE(source.processCount(), 1);
+    }
+    // 会话销毁 → 协调器析构 → sessionClosing：进程全关、临时文件删除、持久文件保留
+    QCOMPARE(source.processCount(), 0);
+    QVERIFY(!QFile::exists(ephFile));
+    QVERIFY(QFile::exists(tmp.path() + QStringLiteral("/tools/agent-0/echo.py")));
 }
 
 void ScriptToolSourceTests::coordinator_removeSourceAndOwner()

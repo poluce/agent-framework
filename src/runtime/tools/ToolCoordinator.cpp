@@ -206,7 +206,16 @@ ToolCoordinator::ToolCoordinator(AbstractSession *session,
     }
 }
 
-ToolCoordinator::~ToolCoordinator() = default;
+ToolCoordinator::~ToolCoordinator()
+{
+    // 会话销毁：通知每个已登记源收尾（杀进程/删临时文件）。
+    // 源由登记方（宿主）持有，按契约存活到会话之后；此处只通知不拥有。
+    for (AbstractToolSource *source : sources()) {
+        if (source) {
+            source->sessionClosing();
+        }
+    }
+}
 
 void ToolCoordinator::addSource(AbstractToolSource *source, const QString &ownerAgentId)
 {

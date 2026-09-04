@@ -293,16 +293,23 @@ ScriptToolSource::ScriptToolSource(QObject *parent)
 
 ScriptToolSource::~ScriptToolSource()
 {
+    sessionClosing();
+}
+
+void ScriptToolSource::sessionClosing()
+{
     for (ScriptProcess *proc : std::as_const(m_processes)) {
         proc->stop();
     }
     m_processes.clear();
-    // 临时工具：本源析构（会话结束）时删除文件
+    // 临时工具：会话结束删除文件（持久工具文件保留，重启扫描加载）
     for (const ScriptTool &tool : std::as_const(m_tools)) {
         if (tool.ephemeral) {
             QFile::remove(tool.filePath);
         }
     }
+    m_subscribers.clear();
+    m_session = nullptr;
 }
 
 void ScriptToolSource::setToolDirectory(const QString &dir)

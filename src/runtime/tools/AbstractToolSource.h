@@ -68,6 +68,10 @@ public:
         return ToolPermissionDecision::NeedsApproval;
     }
 
+    /// 会话关闭通知：ToolCoordinator 析构（= 会话销毁）时对每个已登记源调用。
+    /// 有进程/临时资源的源在此收尾（杀进程、删临时文件）；默认空。
+    virtual void sessionClosing() {}
+
 signals:
     void toolsChanged();
 };
