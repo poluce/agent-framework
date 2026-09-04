@@ -43,7 +43,7 @@ AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
         m_orchestrationGuard = m_config.orchestration;
         m_config.orchestration->attach(this);
         if (AbstractToolSource *source = m_config.orchestration->toolSource()) {
-            m_coordinator->addSource(source);
+            m_coordinator->addSource(source, QString());
         }
     }
 }

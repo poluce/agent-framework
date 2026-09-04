@@ -56,7 +56,12 @@ public:
     ~ToolCoordinator() override;
 
     /// 追加外部源（非拥有）。同一指针不重复登记。
-    void addSource(AbstractToolSource *source);
+    /// ownerAgentId：登记方归属（宿主注入 = 空；供 sourceOwner 查询）。
+    void addSource(AbstractToolSource *source, const QString &ownerAgentId);
+    /// 注销外部源（非拥有；源自身生命周期由登记方管理）。目录变化会发 toolsUpdated。
+    void removeSource(AbstractToolSource *source);
+    /// 查询源的登记归属；未登记返回空。
+    QString sourceOwner(AbstractToolSource *source) const;
 
     /// 全量目录（登记 / 测试）；不含编排裁剪。
     QList<ToolSpec> allSpecs() const;
@@ -91,4 +96,5 @@ private:
     AbstractToolSource *m_builtinSource = nullptr;
     AbstractToolSource *m_sessionSource = nullptr;
     QList<AbstractToolSource *> m_externalSources;
+    QHash<AbstractToolSource *, QString> m_sourceOwners;
 };

@@ -118,6 +118,8 @@ public:
             taskManager()->setTodos(todos);
         }
     }
+    /// 窄报文入队：补全 id/时间戳/优先级后转完整报文（见 AgentInboxMessage）。
+    bool enqueueInboxMessage(const UnitInboxMessage &msg) override;
 
     // ── 操作 ──
     void submitUserMessageWithSkill(const QString &message,

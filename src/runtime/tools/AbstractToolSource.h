@@ -8,12 +8,15 @@
 
 #include <functional>
 
+class AbstractSession;
 class BuiltinToolRuntime;
 
 struct ToolInvokeContext
 {
     QString agentId;
     QString workingDirectory;
+    /// 会话窄视图（异步推送路径用；可能为空）。
+    AbstractSession *session = nullptr;
     BuiltinToolRuntime *builtinRuntime = nullptr;
 };
 

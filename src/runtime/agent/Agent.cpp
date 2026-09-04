@@ -593,6 +593,19 @@ void Agent::submitUserMessageWithSkill(const QString &message,
     }
 }
 
+bool Agent::enqueueInboxMessage(const UnitInboxMessage &msg)
+{
+    AgentInboxMessage full;
+    full.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    full.fromAgentId = msg.fromAgentId;
+    full.fromDisplayName = msg.fromAgentId;
+    full.content = msg.content;
+    full.type = msg.type;
+    full.payload = msg.payload;
+    full.timestamp = QDateTime::currentDateTimeUtc();
+    return enqueueInboxMessage(full);
+}
+
 bool Agent::enqueueInboxMessage(const AgentInboxMessage &msg)
 {
     if (m_runtime.maxInboxMessages > 0) {

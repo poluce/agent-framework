@@ -177,7 +177,84 @@ void onUnitStateChanged(Agent *unit) override
 
 ---
 
-## 8. 技能
+## 8. 脚本工具（agent 自加工具）
+
+`ScriptToolSource` 把磁盘上的脚本（py / js / ts）变成内核工具，并给 agent 一条**运行时自加工具**的路径。C++ 无法在运行时编译，动态工具的现实路径就是脚本（或 MCP 外部进程）。
+
+### 8.1 装配
+
+```cpp
+auto *scriptSource = new ScriptToolSource(host);
+scriptSource->setToolDirectory(host->toolDir());          // 持久：重启扫描加载
+scriptSource->setEphemeralDirectory(host->blobDir());     // 临时：会话结束删除
+scriptSource->setRuntimeCommand("py", "python3");         // 缺省 python3/node/ts-node
+cfg.externalToolSource = scriptSource;                    // 会话级注入（同 MCP）
+```
+
+### 8.2 元工具：create_tool / delete_tool
+
+agent 用 `create_tool` 自加工具（写文件 + 注册，下一轮即可调用）：
+
+| 参数 | 说明 |
+|------|------|
+| `name` | 工具名（字母/数字/下划线，不能以数字开头） |
+| `description` | 给模型的描述 |
+| `code` | 脚本代码（协议见 8.3） |
+| `language` | py / js / ts，缺省 py |
+| `mode` | sync（同步返回）/ push（常驻 + 事件推送），缺省 sync |
+| `input_schema` | 工具入参 JSON Schema |
+| `ephemeral` | true = 临时工具（会话结束删除），缺省 false |
+
+`delete_tool(name, keep_file)`：删除（注销 + 删文件）或暂停（`keep_file=true` 只注销）。同名 `create_tool` = 更新（覆盖旧文件）。
+
+### 8.3 脚本协议（JSON 行，stdin/stdout）
+
+脚本从 stdin 读请求，向 stdout 写结果（**stdout 只允许协议行**，调试输出走 stderr）：
+
+```json
+{"type":"invoke","id":"<reqId>","callId":"<callId>","tool":"<name>","args":{...}}
+{"type":"result","id":"<reqId>","ok":true,"text":"...","structured":{...}}
+{"type":"result","id":"<reqId>","ok":false,"error":"..."}
+```
+
+push 模式额外支持主动事件：
+
+```json
+{"type":"event","targetAgentId":"<可选>","text":"...","payload":{...}}
+```
+
+事件缺省投给该工具最近一次调用者；`targetAgentId` 可显式指定。事件经 `UnitInboxMessage` 进目标单元邮箱（`type="tool_event"`，`payload.tool` = 工具名），配方在 `onUnitStateChanged` 里照常 take/ack/投递。
+
+### 8.4 监控工具（push 模式）
+
+调用立即返回「已订阅」，事件异步到达——**不要用 `tryExecuteAsync`**（无超时、阻塞整轮）：
+
+```cpp
+void onUnitStateChanged(Agent *unit) override
+{
+    if (unit->busy()) return;
+    const auto messages = unit->takePendingInboxMessages();
+    for (const auto &msg : messages) {
+        if (msg.type == "tool_event") {
+            // 把事件编成任务喂回该单元
+            const bool accepted = unit->submitAgentTask(decode(msg.payload));
+            if (accepted) unit->ackInboxMessages({msg.id});
+            else unit->requeueInboxMessages({msg.id});
+        }
+    }
+}
+```
+
+### 8.5 生命周期与边界
+
+- 每个脚本一个长驻进程：懒启动；崩溃自动重启；sync 型空闲超时回收（`setIdleTimeoutMs`），push 型常驻；单次调用超时杀进程（`setInvokeTimeoutMs`）
+- 文件按 `<目录>/<agentId>/<name>.<ext>` 组织；首行 `@tool {...}` manifest 声明 spec
+- 脚本工具默认 `Write` 权限（任意代码）；谁能调用仍由 `toolVisible` 裁，审批走 `evaluatePermission`
+- 删除/暂停的归属边界在配方（`toolVisible`），内核不内置「只有创建者能删」
+
+---
+
+## 9. 技能
 
 - 技能目录由宿主注入 `FileSkillLoader`（会话级）
 - 内核按单元组装 `<available_skills>` 提示块：`skillVisible(unit, skillName)` 过滤
@@ -185,7 +262,7 @@ void onUnitStateChanged(Agent *unit) override
 
 ---
 
-## 9. 不要做的
+## 10. 不要做的
 
 - 不要在 GUI/TUI 里 spawn 或持有 `Agent*`
 - 不要给内核加「第二种 Leader」——新模式 = 新配方
