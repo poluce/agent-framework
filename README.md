@@ -6,6 +6,16 @@ Qt 6 上的 **Agent 执行单元内核**：一轮对话、工具、账本、压�
 
 不是 GUI/TUI，也不是 Host 协议。配方、MCP、AppPaths、组合根由宿主提供。
 
+## 文档
+
+| 文档 | 读者 | 内容 |
+|------|------|------|
+| [配方指南](docs/recipe-guide.md) | 配方作者 | 编排口契约、per-agent 环境、邮箱、工具/技能 |
+| [Provider 协议](docs/协议/provider-protocol.md) | Provider 适配者 | 多模型中间协议 |
+| [测试覆盖率](docs/测试/coverage.md) | 内核开发者 | 覆盖率方案与踩坑记录 |
+| [技术债清单](docs/TODO.md) | 内核开发者 | 已知耦合与待办重构 |
+| [AGENTS.md](AGENTS.md) | 内核开发者 | 目标与边界 |
+
 ## Unreleased 目录调整（breaking）
 
 - `agent/SessionRuntime.h` → `config/SessionRuntime.h`
