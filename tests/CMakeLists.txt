@@ -85,6 +85,8 @@ if(_fw_have_src)
     agent_fw_add_kernel_test(agent_summary_job_queue_tests SummaryJobQueueTests.cpp)
     agent_fw_add_kernel_test(agent_inbox_delivery_tests InboxDeliveryTests.cpp)
     agent_fw_add_kernel_test(agent_skill_tests SkillTests.cpp)
+    agent_fw_add_kernel_test(agent_script_tool_source_tests ScriptToolSourceTests.cpp)
+    agent_fw_add_kernel_test(agent_config_tool_tests ConfigToolTests.cpp)
 endif()
 
 set(_fw_test_names ${_fw_all_targets})

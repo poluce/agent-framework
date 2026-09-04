@@ -191,6 +191,7 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/runtime/agent/AgentSession.h` | 单元表 + `AgentSessionConfig` |
 | `src/runtime/agent/OrchestrationRegistry.*` | 按 id 创建配方 |
 | `src/runtime/agent/AgentModePolicy.h` | 模式策略口（具体策略由宿主注入） |
+| `src/runtime/tools/ScriptToolSource.*` | 脚本工具桥：磁盘脚本 → 工具；create_tool/delete_tool 元工具 |
 | `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
 | `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
 | `docs/TODO.md` | 技术债清单（已知耦合与待办重构） |

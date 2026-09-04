@@ -88,6 +88,7 @@ public:
     // ── 状态查询 ──
     [[nodiscard]] core_ir::AgentPhase currentPhase() const;
     QString lastError() const;
+    /// 仅宿主查询用；不参与系统提示词拼装（拼装走 SystemPromptBuilder 体系）。
     QString systemPrompt() const;
     bool busy() const;
     bool hasPendingApproval() const;
@@ -118,6 +119,8 @@ public:
             taskManager()->setTodos(todos);
         }
     }
+    /// 窄报文入队：补全 id/时间戳/优先级后转完整报文（见 AgentInboxMessage）。
+    bool enqueueInboxMessage(const UnitInboxMessage &msg) override;
 
     // ── 操作 ──
     void submitUserMessageWithSkill(const QString &message,

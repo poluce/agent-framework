@@ -31,8 +31,6 @@ Agent::Agent(const QString &agentId,
 {
     Q_ASSERT_X(!m_runtime.workingDirectory.trimmed().isEmpty(),
                "Agent::Agent", "workingDirectory 不能为空，调用方必须提供有效路径");
-    Q_ASSERT_X(!m_runtime.systemPrompt.trimmed().isEmpty(),
-               "Agent::Agent", "systemPrompt 不能为空，调用方必须提供有效提示词");
 
     // 转发配置到 loop
     m_loop->setAgentInfo(m_agentId, m_displayName);
@@ -155,6 +153,7 @@ AgentTaskManager *Agent::taskManager() const
     return m_taskManager.get();
 }
 
+/// 仅宿主查询用：不参与系统提示词拼装（拼装走 SystemPromptBuilder 体系）。
 void Agent::setSystemPrompt(const QString &systemPrompt)
 {
     m_runtime.systemPrompt = systemPrompt.trimmed();
@@ -591,6 +590,19 @@ void Agent::submitUserMessageWithSkill(const QString &message,
         m_status = AgentStatus::Running;
         m_loop->start(m_runtime);
     }
+}
+
+bool Agent::enqueueInboxMessage(const UnitInboxMessage &msg)
+{
+    AgentInboxMessage full;
+    full.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    full.fromAgentId = msg.fromAgentId;
+    full.fromDisplayName = msg.fromAgentId;
+    full.content = msg.content;
+    full.type = msg.type;
+    full.payload = msg.payload;
+    full.timestamp = QDateTime::currentDateTimeUtc();
+    return enqueueInboxMessage(full);
 }
 
 bool Agent::enqueueInboxMessage(const AgentInboxMessage &msg)

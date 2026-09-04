@@ -43,7 +43,7 @@ AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
         m_orchestrationGuard = m_config.orchestration;
         m_config.orchestration->attach(this);
         if (AbstractToolSource *source = m_config.orchestration->toolSource()) {
-            m_coordinator->addSource(source);
+            m_coordinator->addSource(source, QString());
         }
     }
 }
@@ -184,7 +184,10 @@ QString AgentSession::userCustomPrompt() const
 void AgentSession::setUserCustomPrompt(const QString &text)
 {
     if (m_config.promptBuilder) {
-        m_config.promptBuilder->setUserCustomPrompt(text);
+        const QString trimmed = text.trimmed();
+        m_config.promptBuilder->setUserCustomPrompt(trimmed);
+        // 持久化到用户提示词文件（未配置路径时 savePromptFile 为 no-op）
+        m_config.promptBuilder->savePromptFile(trimmed);
     }
 }
 
@@ -464,6 +467,9 @@ void AgentSession::clear()
     if (m_config.orchestration) {
         m_config.orchestration->onUnitsClearing();
     }
+
+    // 工具源丢弃单元级状态（脚本进程/订阅/临时工具）
+    m_coordinator->notifySessionCleared();
 
     // 显式清邮箱：未读消息以 Dropped 事件可观测地丢弃（编排可在 onUnitsClearing 先抢救）。
     for (Agent *agent : std::as_const(m_agents)) {

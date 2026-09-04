@@ -7,7 +7,7 @@
 #include "types/ConversationMessage.h"
 #include "agent/ProviderRunLedger.h"
 #include "tools/BuiltinToolRuntime.h"
-#include "providers/ProviderTypes/ProviderTypes.h"
+#include "providers/ProviderTypes/ProviderEvent.h"
 
 #include "types/CoreEventChannel.h"
 #include "types/CoreEvent.h"

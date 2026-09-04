@@ -67,7 +67,8 @@ public:
 
 signals:
     /// 异步环境检测完成（仅当 prepare() 启动异步检测后发出）。
-    void environmentReady();
+    /// 一次性事件命名，区别于状态查询 environmentReady()。
+    void environmentDetected();
 
 private:
     void invalidateStableCache() const;

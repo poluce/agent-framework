@@ -197,7 +197,7 @@ ToolCoordinator::ToolCoordinator(AbstractSession *session,
 {
     m_builtinSource = new BuiltinToolSource(&m_registry, this);
     m_sessionSource = new SessionToolSource(m_sessionRuntime.get(), this);
-    addSource(externalSource);
+    addSource(externalSource, QString());
     if (session) {
         if (auto skillList = std::dynamic_pointer_cast<SkillListTool>(
                 m_registry.builtinTool(QStringLiteral("skill_list")))) {
@@ -206,15 +206,49 @@ ToolCoordinator::ToolCoordinator(AbstractSession *session,
     }
 }
 
-ToolCoordinator::~ToolCoordinator() = default;
+ToolCoordinator::~ToolCoordinator()
+{
+    // 会话销毁：通知每个已登记源收尾（杀进程/删临时文件）。
+    // 源由登记方（宿主）持有，按契约存活到会话之后；此处只通知不拥有。
+    for (AbstractToolSource *source : sources()) {
+        if (source) {
+            source->sessionClosing();
+        }
+    }
+}
 
-void ToolCoordinator::addSource(AbstractToolSource *source)
+void ToolCoordinator::addSource(AbstractToolSource *source, const QString &ownerAgentId)
 {
     if (!source || m_externalSources.contains(source)) {
         return;
     }
     m_externalSources.append(source);
+    m_sourceOwners.insert(source, ownerAgentId);
     connect(source, &AbstractToolSource::toolsChanged, this, &ToolCoordinator::toolsUpdated);
+}
+
+void ToolCoordinator::removeSource(AbstractToolSource *source)
+{
+    if (!source || !m_externalSources.removeOne(source)) {
+        return;
+    }
+    m_sourceOwners.remove(source);
+    disconnect(source, &AbstractToolSource::toolsChanged, this, &ToolCoordinator::toolsUpdated);
+    emit toolsUpdated();
+}
+
+QString ToolCoordinator::sourceOwner(AbstractToolSource *source) const
+{
+    return m_sourceOwners.value(source);
+}
+
+void ToolCoordinator::notifySessionCleared()
+{
+    for (AbstractToolSource *source : sources()) {
+        if (source) {
+            source->sessionCleared();
+        }
+    }
 }
 
 QList<AbstractToolSource *> ToolCoordinator::sources() const
@@ -320,6 +354,7 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
     ToolInvokeContext ctx;
     ctx.agentId = agentId;
     ctx.workingDirectory = workingDirectory;
+    ctx.session = m_session;
     ctx.builtinRuntime = &agentRuntime;
     source->invoke(call, ctx, std::move(completion));
 }

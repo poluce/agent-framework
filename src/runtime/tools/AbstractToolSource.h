@@ -8,12 +8,15 @@
 
 #include <functional>
 
+class AbstractSession;
 class BuiltinToolRuntime;
 
 struct ToolInvokeContext
 {
     QString agentId;
     QString workingDirectory;
+    /// 会话窄视图（异步推送路径用；可能为空）。
+    AbstractSession *session = nullptr;
     BuiltinToolRuntime *builtinRuntime = nullptr;
 };
 
@@ -64,6 +67,14 @@ public:
         }
         return ToolPermissionDecision::NeedsApproval;
     }
+
+    /// 会话关闭通知：ToolCoordinator 析构（= 会话销毁）时对每个已登记源调用。
+    /// 有进程/临时资源的源在此收尾（杀进程、删临时文件）；默认空。
+    virtual void sessionClosing() {}
+
+    /// 会话清空通知：AgentSession::clear()（单元全删、会话继续）时调用。
+    /// 源应丢弃单元级状态（订阅、临时工具、进程）；持久资源保留。默认空。
+    virtual void sessionCleared() {}
 
 signals:
     void toolsChanged();

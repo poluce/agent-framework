@@ -2185,13 +2185,6 @@ void AbstractLoop::handleTextDelta(const ProviderEvent &event)
 {
     armModelResponseWatchdog();
     if (ConversationMessage *entry = ensureStreamingAssistantEntry()) {
-        // 流式文本增量日志：记录增量长度/累计长度/增量文本预览，
-        // 便于复现「半句停止」时判断模型输出到哪、是否突然断流
-        LOGD(LogCat::Provider, logContext()) << "流式文本增量"
-            << logf("mid", event.deltaPayload.base.messageId)
-            << logf("deltaLen", event.deltaPayload.text.size())
-            << logf("totalLen", entry->text.size() + event.deltaPayload.text.size())
-            << logf("delta", event.deltaPayload.text.left(120));
         entry->text.append(event.deltaPayload.text);
         entry->responseId = event.deltaPayload.base.messageId;
         emitProtocolEvent(core_ir::EventAgentMessageContentDelta{
