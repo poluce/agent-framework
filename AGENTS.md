@@ -194,6 +194,7 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
 | `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
 | `docs/TODO.md` | 技术债清单（已知耦合与待办重构） |
+| `docs/recipe-guide.md` | **面向配方作者**的编排指南（用户文档；AGENTS.md 是内核边界文档） |
 | `docs/测试/coverage.md` | 测试覆盖率方案与踩坑记录 |
 | `scripts/coverage.ps1` | 覆盖率一键流程（Windows 原生 PowerShell） |
 | `examples/minimal/` | 仓外最小宿主：假 Provider 跑一轮 |
