@@ -2,6 +2,32 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-09-04
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `AgentSession::createAgent` 删除（与 `insertUnit` 完全重复；保留 `insertUnit`）
+
+### 🟢 新增功能
+
+- `AbstractOrchestration::skillVisible(unit, skillName)`：按单元裁剪 `<available_skills>` 技能块（per-agent 技能；与 `toolVisible` 平行）
+- `SessionRuntime::fieldKeys()`：字段集指纹（X-macro 同源展开，与 `toJson()` 键一致；宿主白名单可自动比对）
+- `SystemPromptBuilder::environmentReady()`：环境块就绪查询
+
+### 🟡 功能修改
+
+- `submitUserDelivery` / `submitAgentTask` 返回 `bool`（是否成功入队；配方可据此 ack/requeue；void→bool 对现有调用方源码兼容）
+- `onUnitInserted` 默认记录第一个单元为主单元；`primaryUnit()` / `isPrimary()` 默认行为随之生效
+- `rolePromptFile` 接口文档补解析根（`:/system_prompts/` + `<可执行目录>/system_prompts/`）
+- `AgentSession` 析构对「编排先于会话销毁」告警（组合根声明顺序错误不再悬垂崩溃）
+- `buildPrompt` 在环境块就绪前被调用时告警（不再静默降级）
+- 安装包测试移除产品段（产品兼容性由产品仓负责，见 poluce/agent#21）
+- 测试覆盖率方案：`AGENT_FRAMEWORK_COVERAGE` 开关 + `scripts/coverage.ps1` + skills 模块测试（0% → 87-100%）
+
+### 🔵 修复
+
+- #13：`agent_framework_install_layout` 全量并行偶发超时（根因：产品段拖慢测试）
+
 ## [0.5.0] - 2026-09-04
 
 ### 🔴 Breaking Changes（升级前必看）
