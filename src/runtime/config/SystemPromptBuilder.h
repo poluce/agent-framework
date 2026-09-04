@@ -49,6 +49,9 @@ public:
     // 核心拼接（模式文案走 ctx.modePromptFile，不认 AgentMode）
     [[nodiscard]] QString buildPrompt(const AgentPromptContext &ctx) const;
 
+    /// 环境块是否已就绪（prepare() 的异步检测完成）。就绪前 buildPrompt 会缺环境块。
+    [[nodiscard]] bool environmentReady() const { return m_envReady; }
+
     /// 大压缩 system：内置 compact.md + 注入槽位追加为补充
     [[nodiscard]] QString compactSystemPrompt() const;
     [[nodiscard]] static QString builtinCompactSystemPrompt();
@@ -89,4 +92,6 @@ private:
     mutable bool m_stableCacheValid = false;
     // 异步环境检测
     QFutureWatcher<QString> *m_envWatcher = nullptr;
+    bool m_envDetectionStarted = false;
+    bool m_envReady = false;
 };

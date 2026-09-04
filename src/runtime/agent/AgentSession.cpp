@@ -40,6 +40,7 @@ AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
         : m_sessionId;
     // 会话成员齐了再 attach，编排才能用 insertUnit / coordinator
     if (m_config.orchestration) {
+        m_orchestrationGuard = m_config.orchestration;
         m_config.orchestration->attach(this);
         if (AbstractToolSource *source = m_config.orchestration->toolSource()) {
             m_coordinator->addSource(source);
@@ -49,8 +50,11 @@ AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
 
 AgentSession::~AgentSession()
 {
-    if (m_config.orchestration) {
-        m_config.orchestration->detach();
+    if (m_orchestrationGuard) {
+        m_orchestrationGuard->detach();
+    } else if (m_config.orchestration) {
+        // 编排先于会话销毁：组合根声明顺序错误（须先声明编排、后声明会话）。
+        LOGW(LogCat::Agent) << "编排对象先于会话销毁，跳过 detach（组合根声明顺序错误）";
     }
     // 会话销毁：自动清理本会话 blob 目录
     QDir(sessionBlobRoot()).removeRecursively();
@@ -274,12 +278,6 @@ Agent *AgentSession::insertUnit(const QString &agentId,
     pushEvent(core_ir::EventAgentStateChanged{agentId, false, {}, true, false, {}, {}, 0,
                                               core_ir::AgentStatus::Idle});
     return agent;
-}
-
-Agent *AgentSession::createAgent(const QString &agentId,
-                                 const QString &displayName)
-{
-    return insertUnit(agentId, displayName);
 }
 
 // ── 查找 ──

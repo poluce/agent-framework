@@ -1,5 +1,7 @@
 #include "SystemPromptBuilder.h"
 
+#include "logging/LogManager.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -238,6 +240,7 @@ SystemPromptBuilder::SystemPromptBuilder(PromptPaths paths, QObject *parent)
     m_envWatcher = new QFutureWatcher<QString>(this);
     connect(m_envWatcher, &QFutureWatcher<QString>::finished, this, [this]() {
         m_cachedEnvBlock = m_envWatcher->result();
+        m_envReady = true;
         emit environmentReady();
     });
 }
@@ -248,6 +251,7 @@ void SystemPromptBuilder::prepare()
     m_userCustomPrompt = loadUserPromptFile();
     invalidateStableCache();
     // 环境块异步检测（QtConcurrent），完成后发 environmentReady()，不阻塞主线程。
+    m_envDetectionStarted = true;
     if (!m_envWatcher->isRunning()) {
         m_envWatcher->setFuture(QtConcurrent::run(&SystemPromptBuilder::assembleEnvBlock));
     }
@@ -293,6 +297,12 @@ QString SystemPromptBuilder::segmentSystemPrompt() const
 
 QString SystemPromptBuilder::buildPrompt(const AgentPromptContext &ctx) const
 {
+    // 就绪前调用：环境块缺失，提示词静默降级（首轮缺环境信息）。
+    if (m_envDetectionStarted && !m_envReady) {
+        LOGW(LogCat::Config) << "buildPrompt 在环境块就绪前被调用，提示词将缺少环境块"
+            << logf("agentId", ctx.agentId);
+    }
+
     // 稳定段缓存填充（环境块已在初始化时预先组装，不依赖该标记）
     if (!m_stableCacheValid) {
         m_cachedUserBlock = assembleUserBlock();

@@ -111,12 +111,12 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | 方法 | 默认 | 典型用途 |
 |------|------|----------|
 | `onSessionStarted()` | 不插单元 | 插入首批单元 |
-| `onUnitInserted(unit)` | 空 | 记住主单元 id（须在 `setCoordinator` 之前，段摘要管线依赖 `findById`） |
+| `onUnitInserted(unit)` | 记录第一个单元为主单元 | 覆盖时如需默认行为请调用基类（须在 `setCoordinator` 之前，段摘要管线依赖 `findById`） |
 | `onUnitStateChanged(unit)` | 空 | 拉排队、空闲时投递邮箱 |
 | `onUnitsClearing()` | 空 | 清团队、清排队、清主单元 id |
-| `primaryUnit()` / `isPrimary(unit)` | 无主单元 | 快照、改标题、宿主选中回落 |
+| `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 对非主单元隐藏 spawn/config/mcp 等 |
-| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符 |
+| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/` |
 | 模式文案 | 策略填 `AgentPromptContext.modePromptFile` | 只返回 basename。内核 `SystemPromptBuilder` 不认 `AgentMode` |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
@@ -142,7 +142,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 1. 继承 `AbstractOrchestration`。
 2. 实现 `toolSource` / `attach` / `detach`。
 3. 在 `onSessionStarted` 里按你的模式 `insertUnit`。需要主单元就在 `onUnitInserted` 记下第一个（或你指定的）id。
-4. 若单元之间要通信：往目标 `enqueueInboxMessage`，在 `onUnitStateChanged` 里对空闲单元 `takePendingInboxMessages`，编成你自己的报文，再 `loop()->enqueueAgentTask`；投递成功调用 `ackInboxMessages`，失败调用 `requeueInboxMessages`（`submitAgentTask` 无返回值，需自行保证投递成功后再 ack）。
+4. 若单元之间要通信：往目标 `enqueueInboxMessage`，在 `onUnitStateChanged` 里对空闲单元 `takePendingInboxMessages`，编成你自己的报文，再 `loop()->enqueueAgentTask`；投递成功调用 `ackInboxMessages`，失败调用 `requeueInboxMessages`（`submitAgentTask` 返回是否成功入队，据此 ack/requeue）。
 5. 若允许宿主加/删单元：覆盖 `createUnit` / `closeUnit`。
 6. 若有专用工具：实现 `AbstractToolSource`，在 `toolSource()` 返回；用 `toolVisible` 按单元裁剪。
 7. 在宿主的 `OrchestrationRegistry::add` 登记，不要改 `Agent` / `AgentSession`。
