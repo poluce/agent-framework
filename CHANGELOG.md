@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-07
+
 ### 🔴 Breaking Changes（升级前必看）
 
 - `types/CoreEvent.h` 只保留执行单元运行时发出的事件。删除产品壳 IR：
