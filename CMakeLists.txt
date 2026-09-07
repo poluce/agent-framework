@@ -127,10 +127,6 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     agent/AgentTaskManager.h
     agent/OrchestrationRegistry.h
     agent/ProviderRunLedger.h
-    agent/compact/CompactEngine.h
-    agent/compact/ModelViewStore.h
-    agent/compact/SummaryJobQueue.h
-    agent/compact/SummaryStore.h
     config/SystemPromptBuilder.h
     types/CoreEvent.h
     types/CoreEventChannel.h

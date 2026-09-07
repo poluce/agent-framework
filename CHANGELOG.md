@@ -15,6 +15,7 @@
 - 自动改名不再内置中文 LLM 调用。注入 `AgentSessionConfig.titleGenerator`；未注入则截取用户消息。不再硬编码标题「新会话」，改认空标题或 `untitledTitle`。
 - 内核 qrc 移除 `role_leader.md` / `role_member.md`。角色模板由宿主放到 `system_prompts/` 或自有 qrc。
 - `AgentSession::fromAgent` 删除。
+- 安装包不再公开 `agent/compact/*`（`CompactEngine` / `SummaryJobQueue` / `SummaryStore` / `ModelViewStore`）。`Agent::summaryStore()` / `modelViewStore()` 删除。
 
 ### 🟡 功能修改
 
@@ -24,6 +25,7 @@
 - Agent / Session / Loop / CompactEngine 共用 `core_ir::EventHandlerRegistry` 增删 handler。
 - 写工具成功后调用 `notifyFileWritten`，同会话其他单元读缓存失效。
 - 工具可见性拒绝文案改为「该单元不可见此工具。」
+- 压缩策略（等队列 / 拼视图 / 开大压）从 `Agent` 迁到 `compact/CompactPipeline`。`Agent` 只转接 Loop 请求。
 
 ## [0.5.3] - 2026-09-05
 

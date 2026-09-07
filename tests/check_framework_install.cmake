@@ -91,7 +91,12 @@ foreach(_rel IN ITEMS
     providers/transport/HttpSseChannel.h
     tools/builtin/ReadFileTool.h
     tools/session/ConfigTool.h
-    agent/compact/CompactToolPair.h)
+    agent/compact/CompactToolPair.h
+    agent/compact/CompactEngine.h
+    agent/compact/CompactPipeline.h
+    agent/compact/ModelViewStore.h
+    agent/compact/SummaryJobQueue.h
+    agent/compact/SummaryStore.h)
     if(EXISTS "${_inc}/${_rel}")
         message(FATAL_ERROR "product/internal header leaked into framework install: ${_rel}")
     endif()
