@@ -162,6 +162,9 @@ public:
     /** 同会话其他 Agent 写入了工作区文件 → 本 Agent 读缓存失效（写前需重读）。 */
     void notifyFileWrittenByOther(const QString &absPath);
 
+    BuiltinToolRuntime &builtinRuntime() { return m_builtinRuntime; }
+    [[nodiscard]] const BuiltinToolRuntime &builtinRuntime() const { return m_builtinRuntime; }
+
     QString sessionUuid() const { return m_sessionUuid; }
     void setSessionUuid(const QString &uuid);
 

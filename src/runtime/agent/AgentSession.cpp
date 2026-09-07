@@ -31,7 +31,7 @@ bool jsonAgentIsPrimary(const QJsonObject &agentObj, const bool fallback)
 AgentSession::AgentSession(const AgentSessionConfig &config, QObject *parent)
     : QObject(parent)
     , m_config(config)
-    , m_coordinator(std::make_unique<ToolCoordinator>(this, config.externalToolSource))
+    , m_coordinator(std::make_unique<ToolCoordinator>(this, config.externalToolSource, config.builtinTools))
     , m_writeCoordinator(std::make_unique<WriteCoordinator>(this))
 {
     m_sessionBlobKey = m_sessionId.trimmed().isEmpty()
@@ -121,12 +121,12 @@ bool AgentSession::commitRuntime(const SessionRuntime &next)
         if (before.value(it.key()) != it.value())
             emitConfigFieldChanged(it.key(), it.value().toVariant());
     }
-    applyRuntimeToPrimary();
+    applyRuntimeToUnits();
     emit runtimeChanged();
     return true;
 }
 
-void AgentSession::applyRuntimeToPrimary()
+void AgentSession::applyRuntimeToUnits()
 {
     for (Agent *agent : std::as_const(m_agents)) {
         if (agent) {

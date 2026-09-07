@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include "SessionToolRuntime.h"
 
@@ -26,7 +27,11 @@ class BuiltinToolRuntime;
 class BuiltinToolRegistry
 {
 public:
-    BuiltinToolRegistry();
+    /// nullopt = defaultTools()；有值则只用这份表（可空）。
+    explicit BuiltinToolRegistry(
+        std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> tools = std::nullopt);
+
+    [[nodiscard]] static QList<std::shared_ptr<AbstractBuiltinTool>> defaultTools();
 
     QList<ToolSpec> specs() const;
     ToolSpec specForName(const QString &toolName) const;
@@ -52,6 +57,7 @@ public:
 
     explicit ToolCoordinator(AbstractSession *session,
                              AbstractToolSource *externalSource = nullptr,
+                             std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools = std::nullopt,
                              QObject *parent = nullptr);
     ~ToolCoordinator() override;
 

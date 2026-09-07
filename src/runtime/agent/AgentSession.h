@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -26,6 +27,7 @@ class ToolCoordinator;
 class WriteCoordinator;
 class FileSkillLoader;
 class SystemPromptBuilder;
+class AbstractBuiltinTool;
 
 /// 创建 AgentSession 时一次性的不可变配置
 struct AgentSessionConfig
@@ -50,6 +52,8 @@ struct AgentSessionConfig
     using TitleReady = std::function<void(const QString &title)>;
     using TitleGenerator = std::function<void(const QString &userText, TitleReady done)>;
     TitleGenerator titleGenerator;
+    /// 内置工具表。nullopt = 默认编码工具集；有值则只用这份（空表 = 无内置工具）。
+    std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools;
 };
 
 /// 执行单元表：登记 / 查找 / 喂任务。编排是可选配方，不是会话身份。
@@ -105,7 +109,7 @@ public:
      */
     bool setRuntimeFields(const QJsonObject &patch);
     /// 把会话活 runtime 写到全部已登记单元。
-    void applyRuntimeToPrimary();
+    void applyRuntimeToUnits();
     QString workingDirectory() const;
     void setSessionWorkingDirectory(const QString &workingDirectory) override;
 

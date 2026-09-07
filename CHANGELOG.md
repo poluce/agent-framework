@@ -18,6 +18,8 @@
 - 安装包不再公开 `agent/compact/*`（`CompactEngine` / `SummaryJobQueue` / `SummaryStore` / `ModelViewStore`）。`Agent::summaryStore()` / `modelViewStore()` 删除。
 - `SkillService::submitWithSkill` 迁到 `agent/SkillSubmit.h`（`skills/` 不再依赖 `Agent*`）。
 - `ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 迁到 `types/MediaAsset.h`。`ConversationMessage` 不再 include `providers/`。
+- `AgentSession::applyRuntimeToPrimary` 更名为 `applyRuntimeToUnits`。
+- `ProviderAudioAsset` / `ProviderVideoAsset` 迁到 `types/MediaAsset.h`。
 
 ### 🟡 功能修改
 
@@ -28,6 +30,7 @@
 - 写工具成功后调用 `notifyFileWritten`，同会话其他单元读缓存失效。
 - 工具可见性拒绝文案改为「该单元不可见此工具。」
 - 压缩策略（等队列 / 拼视图 / 开大压）从 `Agent` 迁到 `compact/CompactPipeline`。`Agent` 只转接 Loop 请求。
+- 内置工具表可注入：`AgentSessionConfig.builtinTools`（nullopt = 默认集；空表 = 无内置工具）。
 
 ## [0.5.3] - 2026-09-05
 

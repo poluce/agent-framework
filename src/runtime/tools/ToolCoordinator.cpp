@@ -21,9 +21,11 @@
 #include "builtin/AskQuestionTool.h"
 #include "builtin/MultiEditTool.h"
 
-namespace {
+// ====================================================================
+// BuiltinToolRegistry
+// ====================================================================
 
-QList<std::shared_ptr<AbstractBuiltinTool>> allBuiltinTools()
+QList<std::shared_ptr<AbstractBuiltinTool>> BuiltinToolRegistry::defaultTools()
 {
     QList<std::shared_ptr<AbstractBuiltinTool>> tools;
     tools.append(std::make_shared<GlobTool>());
@@ -39,15 +41,12 @@ QList<std::shared_ptr<AbstractBuiltinTool>> allBuiltinTools()
     return tools;
 }
 
-} // namespace
-
-// ====================================================================
-// BuiltinToolRegistry
-// ====================================================================
-
-BuiltinToolRegistry::BuiltinToolRegistry()
+BuiltinToolRegistry::BuiltinToolRegistry(
+    std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> tools)
 {
-    for (const auto &tool : allBuiltinTools()) {
+    const QList<std::shared_ptr<AbstractBuiltinTool>> list =
+        tools.has_value() ? *tools : defaultTools();
+    for (const auto &tool : list) {
         const ToolSpec spec = tool->spec();
         const QString canonicalName = spec.name.trimmed();
         if (canonicalName.isEmpty()) continue;
@@ -191,9 +190,11 @@ private:
 
 ToolCoordinator::ToolCoordinator(AbstractSession *session,
                                  AbstractToolSource *externalSource,
+                                 std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools,
                                  QObject *parent)
     : QObject(parent)
     , m_session(session)
+    , m_registry(std::move(builtinTools))
     , m_sessionRuntime(std::make_unique<SessionToolRuntime>(session, this))
 {
     m_builtinSource = new BuiltinToolSource(&m_registry, this);

@@ -218,106 +218,7 @@ enum class ProviderItemStatus {
  */
 [[nodiscard]] ProviderItemStatus parseItemStatus(const QString &text, bool *ok = nullptr);
 
-// ── 多模态资产（图片 / blob / URI scheme 在 types/MediaAsset.h）──
-
-/**
- * @brief 音频资产
- *
- * 可用于输入（麦克风/文件）或输出（TTS/原生音频）；可选附带转写文本。
- * 历史优先 blobRef，避免多轮内联大音频。
- */
-struct ProviderAudioAsset
-{
-    QString uri;          ///< 音频地址；与 data / blobRef 择一主承载
-    QByteArray data;      ///< 内联音频字节（仅小载荷）
-    QString mimeType;     ///< 如 audio/wav、audio/mpeg、audio/webm、audio/ogg、audio/pcm
-    QString transcript;   ///< 可选：已知转写（输入预识别或输出附带）
-    int durationMs = 0;   ///< 可选时长（毫秒），未知为 0
-    int sampleRate = 0;   ///< 可选采样率，未知为 0
-    QString voice;        ///< 可选 TTS 音色标识
-    ProviderBlobRef blobRef; ///< 引用语义
-
-    /**
-     * @brief 从 URL 构造音频资产
-     * @param uri 音频地址
-     * @param mimeType MIME 类型，可选
-     * @param transcript 转写文本，可选
-     */
-    [[nodiscard]] static ProviderAudioAsset fromUrl(const QString &uri,
-                                                    const QString &mimeType = {},
-                                                    const QString &transcript = {});
-
-    /**
-     * @brief 从原始字节构造音频资产
-     * @param data 内联音频字节
-     * @param mimeType MIME 类型
-     * @param transcript 转写文本，可选
-     */
-    [[nodiscard]] static ProviderAudioAsset fromBytes(const QByteArray &data,
-                                                      const QString &mimeType,
-                                                      const QString &transcript = {});
-
-    /// 从 blob 引用构造（data 留空）
-    [[nodiscard]] static ProviderAudioAsset fromBlob(const ProviderBlobRef &blob,
-                                                      const QString &mimeType = {},
-                                                      const QString &transcript = {});
-    /// 是否携带有效 uri
-    [[nodiscard]] bool hasUri() const;
-    /// 是否携带内联字节
-    [[nodiscard]] bool hasInlineData() const;
-    /// 是否携带 blobId
-    [[nodiscard]] bool hasBlobRef() const;
-    /// uri / data / blob 皆空
-    [[nodiscard]] bool isEmpty() const;
-};
-
-/**
- * @brief 视频资产（输入为主；uri / blob / 内联字节）
- *
- * 对应 Gemini inlineData/fileData（video MIME）等视频输入。
- */
-struct ProviderVideoAsset
-{
-    QString uri;          ///< 视频地址；与 data / blobRef 择一主承载
-    QByteArray data;      ///< 内联字节（仅小载荷）
-    QString mimeType;     ///< 如 video/mp4、video/webm
-    QString altText;      ///< 可选说明
-    int startMs = 0;      ///< 可选截取起点（毫秒）
-    int endMs = 0;        ///< 可选截取终点；0 表示未指定
-    double fps = 0.0;     ///< 可选采样帧率；0 表示默认
-    ProviderBlobRef blobRef; ///< 引用语义
-
-    /**
-     * @brief 从 URL 构造视频资产
-     * @param uri 视频地址
-     * @param mimeType MIME 类型，可选
-     * @param altText 说明文本，可选
-     */
-    [[nodiscard]] static ProviderVideoAsset fromUrl(const QString &uri,
-                                                    const QString &mimeType = {},
-                                                    const QString &altText = {});
-    /**
-     * @brief 从原始字节构造视频资产
-     * @param data 内联视频字节
-     * @param mimeType MIME 类型
-     * @param altText 说明文本，可选
-     */
-    [[nodiscard]] static ProviderVideoAsset fromBytes(const QByteArray &data,
-                                                      const QString &mimeType,
-                                                      const QString &altText = {});
-    /// 从 blob 引用构造（data 留空）
-    [[nodiscard]] static ProviderVideoAsset fromBlob(const ProviderBlobRef &blob,
-                                                      const QString &mimeType = {},
-                                                      const QString &altText = {});
-    /// 是否携带有效 uri
-    [[nodiscard]] bool hasUri() const;
-    /// 是否携带内联字节
-    [[nodiscard]] bool hasInlineData() const;
-    /// 是否携带 blobId
-    [[nodiscard]] bool hasBlobRef() const;
-    /// uri / data / blob 皆空
-    [[nodiscard]] bool isEmpty() const;
-};
+// ── 多模态资产：types/MediaAsset.h（图/音/视频 + blob + URI scheme）──
 
 // ── 工具规格（线路侧） ──
 
@@ -592,8 +493,6 @@ struct ModelCapabilities
 /// 浅校验 details 对象顶层键
 [[nodiscard]] bool validateToolDetailsObject(const QJsonObject &details, QString *error = nullptr);
 
-Q_DECLARE_METATYPE(ProviderAudioAsset)
-Q_DECLARE_METATYPE(ProviderVideoAsset)
 Q_DECLARE_METATYPE(ProviderToolSpecification)
 Q_DECLARE_METATYPE(ProviderUsage)
 Q_DECLARE_METATYPE(ProviderError)

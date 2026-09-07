@@ -473,13 +473,13 @@ ToolResult BuiltinToolRuntime::makeSuccessResult(const ToolCall &call,
 BuiltinToolRuntime::ReadFileState BuiltinToolRuntime::readFileState(const QString &filePath) const
 {
     QReadLocker locker(&m_cacheLock);
-    return m_readFileStates.value(filePath);
+    return m_readFileStates.value(WorkspaceHelper::normalizedPath(filePath));
 }
 
 void BuiltinToolRuntime::setReadFileState(const QString &filePath, const ReadFileState &state)
 {
     QWriteLocker locker(&m_cacheLock);
-    m_readFileStates.insert(filePath, state);
+    m_readFileStates.insert(WorkspaceHelper::normalizedPath(filePath), state);
 }
 
 // ---- 写权限校验 ----

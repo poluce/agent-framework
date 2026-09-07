@@ -38,7 +38,7 @@ public:
         if (!unit)
             return;
         m_session->setSelectedAgentId(unit->agentId());
-        m_session->applyRuntimeToPrimary();
+        m_session->applyRuntimeToUnits();
     }
 
     void onUnitInserted(Agent *unit) override
