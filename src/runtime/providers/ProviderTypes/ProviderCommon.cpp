@@ -71,86 +71,7 @@ bool validateObjectKeys(const QJsonObject &object,
     return true;
 }
 
-/// fromBlob 时若 scheme 未指定则补为 Blob
-ProviderBlobRef withBlobScheme(ProviderBlobRef blob)
-{
-    if (blob.scheme == ProviderUriScheme::Unset) {
-        blob.scheme = ProviderUriScheme::Blob;
-    }
-    return blob;
-}
-
 } // namespace
-
-// ── ProviderBlobRef ──
-
-bool ProviderBlobRef::isEmpty() const
-{
-    return blobId.trimmed().isEmpty()
-           && contentHash.trimmed().isEmpty()
-           && byteSize <= 0
-           && scheme == ProviderUriScheme::Unset;
-}
-
-bool ProviderBlobRef::hasBlobId() const
-{
-    return !blobId.trimmed().isEmpty();
-}
-
-// ── ProviderImageAsset ──
-
-ProviderImageAsset ProviderImageAsset::fromUrl(const QString &uri,
-                                               const QString &mimeType,
-                                               const QString &altText)
-{
-    ProviderImageAsset asset;
-    asset.uri = uri;
-    asset.mimeType = mimeType;
-    asset.altText = altText;
-    return asset;
-}
-
-ProviderImageAsset ProviderImageAsset::fromBytes(const QByteArray &data,
-                                                 const QString &mimeType,
-                                                 const QString &altText)
-{
-    ProviderImageAsset asset;
-    asset.data = data;
-    asset.mimeType = mimeType;
-    asset.altText = altText;
-    return asset;
-}
-
-ProviderImageAsset ProviderImageAsset::fromBlob(const ProviderBlobRef &blob,
-                                                const QString &mimeType,
-                                                const QString &altText)
-{
-    ProviderImageAsset asset;
-    asset.blobRef = withBlobScheme(blob);
-    asset.mimeType = mimeType;
-    asset.altText = altText;
-    return asset;
-}
-
-bool ProviderImageAsset::hasUri() const
-{
-    return !uri.trimmed().isEmpty();
-}
-
-bool ProviderImageAsset::hasInlineData() const
-{
-    return !data.isEmpty();
-}
-
-bool ProviderImageAsset::hasBlobRef() const
-{
-    return blobRef.hasBlobId();
-}
-
-bool ProviderImageAsset::isEmpty() const
-{
-    return !hasUri() && !hasInlineData() && !hasBlobRef();
-}
 
 // ── ProviderAudioAsset ──
 
@@ -181,7 +102,7 @@ ProviderAudioAsset ProviderAudioAsset::fromBlob(const ProviderBlobRef &blob,
                                                 const QString &transcript)
 {
     ProviderAudioAsset asset;
-    asset.blobRef = withBlobScheme(blob);
+    asset.blobRef = withDefaultBlobScheme(blob);
     asset.mimeType = mimeType;
     asset.transcript = transcript;
     return asset;
@@ -236,7 +157,7 @@ ProviderVideoAsset ProviderVideoAsset::fromBlob(const ProviderBlobRef &blob,
                                                 const QString &altText)
 {
     ProviderVideoAsset asset;
-    asset.blobRef = withBlobScheme(blob);
+    asset.blobRef = withDefaultBlobScheme(blob);
     asset.mimeType = mimeType;
     asset.altText = altText;
     return asset;

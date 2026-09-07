@@ -16,6 +16,8 @@
 - 内核 qrc 移除 `role_leader.md` / `role_member.md`。角色模板由宿主放到 `system_prompts/` 或自有 qrc。
 - `AgentSession::fromAgent` 删除。
 - 安装包不再公开 `agent/compact/*`（`CompactEngine` / `SummaryJobQueue` / `SummaryStore` / `ModelViewStore`）。`Agent::summaryStore()` / `modelViewStore()` 删除。
+- `SkillService::submitWithSkill` 迁到 `agent/SkillSubmit.h`（`skills/` 不再依赖 `Agent*`）。
+- `ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 迁到 `types/MediaAsset.h`。`ConversationMessage` 不再 include `providers/`。
 
 ### 🟡 功能修改
 

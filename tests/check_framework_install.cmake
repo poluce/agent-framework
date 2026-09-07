@@ -51,8 +51,10 @@ foreach(_rel IN ITEMS
     config/ModelTokenDefaults.h
     config/ProcessSafety.h
     types/ConversationMessage.h
+    types/MediaAsset.h
     types/CoreEvent.h
     types/CoreEventChannel.h
+    agent/SkillSubmit.h
     providers/core/AbstractProvider.h
     providers/service/ProviderCredential.h
     providers/service/ProviderService.h

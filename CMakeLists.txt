@@ -101,6 +101,8 @@ set(AGENT_RUNTIME_SOURCES
     src/runtime/types/CoreEvent.h
     src/runtime/types/CoreEventChannel.h
     src/runtime/types/ConversationMessage.h
+    src/runtime/types/MediaAsset.cpp
+    src/runtime/types/MediaAsset.h
     src/runtime/config/SystemPromptBuilder.cpp
     src/runtime/config/SystemPromptBuilder.h
     src/runtime/framework/AgentFramework.h
@@ -127,10 +129,12 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     agent/AgentTaskManager.h
     agent/OrchestrationRegistry.h
     agent/ProviderRunLedger.h
+    agent/SkillSubmit.h
     config/SystemPromptBuilder.h
     types/CoreEvent.h
     types/CoreEventChannel.h
     types/ConversationMessage.h
+    types/MediaAsset.h
     providers/ProviderTypes/ProviderAdapterTypes.h
     providers/ProviderTypes/ProviderCommon.h
     providers/ProviderTypes/ProviderEvent.h

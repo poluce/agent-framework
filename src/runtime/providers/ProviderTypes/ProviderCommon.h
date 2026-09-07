@@ -5,6 +5,8 @@
  * @brief 协议公共层：版本号、跨模块枚举、多模态资产、Usage/Error、能力位（传输见 AdapterTypes）
  */
 
+#include "types/MediaAsset.h"
+
 #include <QByteArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -216,96 +218,7 @@ enum class ProviderItemStatus {
  */
 [[nodiscard]] ProviderItemStatus parseItemStatus(const QString &text, bool *ok = nullptr);
 
-// ── 多模态资产 ──
-
-/**
- * @brief URI / 引用方案（可移植；adapter 按此编码，禁止靠字符串猜）
- *
- * - Unset：未指定，可从 uri 前缀推断
- * - Https / Http：远程 URL
- * - File：本地文件路径（file:// 或裸路径由 adapter 约定）
- * - Data：data: URI
- * - ProviderFile：厂商文件 id（OpenAI file_id / Gemini Files API 名等）
- * - Blob：应用内 blob store 引用（见 blobId）
- */
-enum class ProviderUriScheme {
-    Unset,       ///< 未指定，可从 uri 前缀推断
-    Https,       ///< 远程 HTTPS URL
-    Http,        ///< 远程 HTTP URL
-    File,        ///< 本地文件路径
-    Data,        ///< data: URI
-    ProviderFile,///< 厂商文件 id
-    Blob,        ///< 应用内 blob store 引用
-};
-
-/**
- * @brief 多模态字节的引用语义（优先于内联 data）
- *
- * 账本/历史应尽量只持引用：blobId 或 provider file id；
- * data 仅适合小 demo / 单次请求，禁止把大块 QByteArray 当多轮真相。
- */
-struct ProviderBlobRef
-{
-    QString blobId;       ///< 应用 blob store id；空=无
-    QString contentHash;  ///< 可选内容哈希（如 sha256 hex）
-    qint64 byteSize = 0;  ///< 字节数；0=未知
-    qint64 expiresAtMs = 0; ///< 过期时间 epoch ms；0=未指定
-    ProviderUriScheme scheme = ProviderUriScheme::Unset; ///< uri/引用方案
-
-    /// 是否无有效引用信息。
-    [[nodiscard]] bool isEmpty() const;
-    /// 是否携带非空 blobId。
-    [[nodiscard]] bool hasBlobId() const;
-};
-
-/**
- * @brief 图片资产
- *
- * 承载优先级：blobRef.blobId / provider file uri > uri > 内联 data。
- * 供 MessagePart / 流式 ImageOutput 使用。
- */
-struct ProviderImageAsset
-{
-    QString uri;        ///< 远程/本地/厂商 file 地址；与 data / blobRef 择一主承载
-    QByteArray data;    ///< 内联图片字节（仅小载荷；历史应转 blob）
-    QString mimeType;   ///< 如 image/png、image/jpeg
-    QString altText;    ///< 可选替代文本 / 文件名提示
-    ProviderBlobRef blobRef; ///< 引用语义（blobId/hash/size/scheme）
-
-    /**
-     * @brief 从 URL 构造图片资产
-     * @param uri 图片地址
-     * @param mimeType MIME 类型，可选
-     * @param altText 替代文本，可选
-     */
-    [[nodiscard]] static ProviderImageAsset fromUrl(const QString &uri,
-                                                    const QString &mimeType = {},
-                                                    const QString &altText = {});
-
-    /**
-     * @brief 从原始字节构造图片资产
-     * @param data 内联图片字节
-     * @param mimeType MIME 类型
-     * @param altText 替代文本，可选
-     */
-    [[nodiscard]] static ProviderImageAsset fromBytes(const QByteArray &data,
-                                                      const QString &mimeType,
-                                                      const QString &altText = {});
-
-    /// 从 blob 引用构造（data 留空）
-    [[nodiscard]] static ProviderImageAsset fromBlob(const ProviderBlobRef &blob,
-                                                      const QString &mimeType = {},
-                                                      const QString &altText = {});
-
-    /// 是否携带有效 uri
-    [[nodiscard]] bool hasUri() const;
-    /// 是否携带内联字节
-    [[nodiscard]] bool hasInlineData() const;
-    /// 是否携带 blobId
-    [[nodiscard]] bool hasBlobRef() const;
-    /// uri / data / blob 皆空
-    [[nodiscard]] bool isEmpty() const;
-};
+// ── 多模态资产（图片 / blob / URI scheme 在 types/MediaAsset.h）──
 
 /**
  * @brief 音频资产
@@ -679,8 +592,6 @@ struct ModelCapabilities
 /// 浅校验 details 对象顶层键
 [[nodiscard]] bool validateToolDetailsObject(const QJsonObject &details, QString *error = nullptr);
 
-Q_DECLARE_METATYPE(ProviderBlobRef)
-Q_DECLARE_METATYPE(ProviderImageAsset)
 Q_DECLARE_METATYPE(ProviderAudioAsset)
 Q_DECLARE_METATYPE(ProviderVideoAsset)
 Q_DECLARE_METATYPE(ProviderToolSpecification)
