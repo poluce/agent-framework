@@ -372,7 +372,12 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
     ctx.workingDirectory = workingDirectory;
     ctx.session = m_session;
     ctx.builtinRuntime = &agentRuntime;
-    source->invoke(call, ctx, std::move(completion));
+    source->invoke(call, ctx, [completion = std::move(completion), callId = call.id](ToolResult tr) {
+        if (tr.toolUseId.trimmed().isEmpty()) {
+            tr.toolUseId = callId;
+        }
+        completion(std::move(tr));
+    });
 }
 
 ToolPermissionDecision ToolCoordinator::evaluatePermission(

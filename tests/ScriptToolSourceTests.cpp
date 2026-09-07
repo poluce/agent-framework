@@ -1,5 +1,6 @@
 #include "tools/ScriptToolSource.h"
 #include "tools/ToolCoordinator.h"
+#include "tools/BuiltinToolRuntime.h"
 #include "agent/Agent.h"
 #include "agent/AgentSession.h"
 
@@ -49,12 +50,13 @@ QString findPython()
 }
 
 ToolResult invokeSync(ScriptToolSource &source, const QString &toolName,
-                      const QJsonObject &input, const ToolInvokeContext &ctx)
+                      const QJsonObject &input, const ToolInvokeContext &ctx,
+                      const QString &callId = {})
 {
     ToolResult result;
     bool done = false;
     ToolCall call;
-    call.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    call.id = callId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : callId;
     call.toolName = toolName;
     call.input = input;
     source.invoke(call, ctx, [&](ToolResult tr) {
@@ -97,6 +99,7 @@ private slots:
     void sessionClose_killsProcessesAndCleansEphemeral();
     void sessionClear_killsProcessesAndDropsEphemeral();
     void coordinator_removeSourceAndOwner();
+    void metaTools_fillToolUseId();
 };
 
 void ScriptToolSourceTests::scan_persistentAndEphemeral()
@@ -566,6 +569,65 @@ void ScriptToolSourceTests::coordinator_removeSourceAndOwner()
     QCOMPARE(spy.count(), 1);
     QCOMPARE(coordinator.sourceOwner(&source), QString());
     QCOMPARE(specCount(coordinator.allSpecs(), QStringLiteral("create_tool")), 0);
+}
+
+void ScriptToolSourceTests::metaTools_fillToolUseId()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString createId = QStringLiteral("call-create-1");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("hello")},
+        {QStringLiteral("description"), QStringLiteral("打招呼")},
+        {QStringLiteral("code"), QStringLiteral("print('hi')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx, createId);
+    QVERIFY(r.success);
+    QCOMPARE(r.toolUseId, createId);
+
+    const QString badId = QStringLiteral("call-create-bad");
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("bad name")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), QStringLiteral("x")},
+    }, ctx, badId);
+    QVERIFY(r.isError);
+    QCOMPARE(r.toolUseId, badId);
+
+    const QString deleteId = QStringLiteral("call-delete-1");
+    r = invokeSync(source, QStringLiteral("delete_tool"), {
+        {QStringLiteral("name"), QStringLiteral("hello")},
+    }, ctx, deleteId);
+    QVERIFY(r.success);
+    QCOMPARE(r.toolUseId, deleteId);
+
+    BuiltinToolRuntime runtime;
+    ToolCoordinator coordinator(nullptr);
+    coordinator.addSource(&source, QStringLiteral("agent-0"));
+    ToolCall call;
+    call.id = QStringLiteral("call-dispatch-1");
+    call.toolName = QStringLiteral("create_tool");
+    call.input = {
+        {QStringLiteral("name"), QStringLiteral("via_dispatch")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), QStringLiteral("x")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    };
+    ToolResult dispatched;
+    bool done = false;
+    coordinator.dispatch(QStringLiteral("agent-0"), call, tmp.path(), runtime,
+                         [&](ToolResult tr) {
+                             dispatched = std::move(tr);
+                             done = true;
+                         });
+    QVERIFY(done);
+    QVERIFY(dispatched.success);
+    QCOMPARE(dispatched.toolUseId, call.id);
 }
 
 QTEST_MAIN(ScriptToolSourceTests)

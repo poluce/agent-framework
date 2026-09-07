@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 🔵 修复
+
+- #32：`ScriptToolSource` 元工具 `create_tool` / `delete_tool` 回调补上 `toolUseId`。`ToolCoordinator::dispatch` 对空 id 回填 `call.id`，避免 Loop 丢掉结果。
+
 ## [0.6.0] - 2026-09-07
 
 ### 🔴 Breaking Changes（升级前必看）

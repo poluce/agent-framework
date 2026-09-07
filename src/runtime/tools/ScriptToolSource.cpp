@@ -22,10 +22,11 @@ namespace {
 constexpr int kManifestScanLines = 20;
 constexpr qint64 kManifestScanBytes = 4096;
 
-ToolResult okResult(const QString &toolName, const QString &text)
+ToolResult okResult(const QString &toolName, const QString &text, const QString &toolUseId)
 {
     ToolResult tr;
     tr.toolName = toolName;
+    tr.toolUseId = toolUseId;
     tr.success = true;
     tr.isError = false;
     tr.category = ToolResultCategory::Success;
@@ -33,10 +34,11 @@ ToolResult okResult(const QString &toolName, const QString &text)
     return tr;
 }
 
-ToolResult errorResult(const QString &toolName, const QString &text)
+ToolResult errorResult(const QString &toolName, const QString &text, const QString &toolUseId)
 {
     ToolResult tr;
     tr.toolName = toolName;
+    tr.toolUseId = toolUseId;
     tr.success = false;
     tr.isError = true;
     tr.category = ToolResultCategory::Error;
@@ -256,9 +258,7 @@ private:
         }
         m_invokeTimers.clear();
         for (const PendingInvoke &p : pending) {
-            ToolResult tr = errorResult(m_tool.spec.name, reason);
-            tr.toolUseId = p.callId;
-            p.callback(std::move(tr));
+            p.callback(errorResult(m_tool.spec.name, reason, p.callId));
         }
     }
 
@@ -385,14 +385,14 @@ void ScriptToolSource::invoke(const ToolCall &call, const ToolInvokeContext &ctx
         return;
     }
     if (!m_tools.contains(name)) {
-        done(errorResult(name, QStringLiteral("脚本工具不存在：%1").arg(name)));
+        done(errorResult(name, QStringLiteral("脚本工具不存在：%1").arg(name), call.id));
         return;
     }
     m_session = ctx.session;
     m_subscribers.insert(name, ctx.agentId);
     ScriptProcess *proc = processFor(name);
     if (!proc) {
-        done(errorResult(name, QStringLiteral("脚本进程启动失败（运行时未配置或命令不可用）")));
+        done(errorResult(name, QStringLiteral("脚本进程启动失败（运行时未配置或命令不可用）"), call.id));
         return;
     }
     proc->invoke(call.id, call.input, ctx.workingDirectory, std::move(done));
@@ -449,15 +449,16 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     static const QRegularExpression nameRe(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]*$"));
     if (!nameRe.match(name).hasMatch()) {
         done(errorResult(call.toolName,
-                         QStringLiteral("工具名非法：%1（须字母/数字/下划线，不能以数字开头）").arg(name)));
+                         QStringLiteral("工具名非法：%1（须字母/数字/下划线，不能以数字开头）").arg(name),
+                         call.id));
         return;
     }
     if (name == QStringLiteral("create_tool") || name == QStringLiteral("delete_tool")) {
-        done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name)));
+        done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name), call.id));
         return;
     }
     if (code.isEmpty()) {
-        done(errorResult(call.toolName, QStringLiteral("code 不能为空")));
+        done(errorResult(call.toolName, QStringLiteral("code 不能为空"), call.id));
         return;
     }
     if (language.isEmpty()) {
@@ -466,21 +467,23 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     if (language != QStringLiteral("py") && language != QStringLiteral("js")
         && language != QStringLiteral("ts")) {
         done(errorResult(call.toolName,
-                         QStringLiteral("language 仅支持 py/js/ts：%1").arg(language)));
+                         QStringLiteral("language 仅支持 py/js/ts：%1").arg(language),
+                         call.id));
         return;
     }
     if (mode.isEmpty()) {
         mode = QStringLiteral("sync");
     }
     if (mode != QStringLiteral("sync") && mode != QStringLiteral("push")) {
-        done(errorResult(call.toolName, QStringLiteral("mode 仅支持 sync/push：%1").arg(mode)));
+        done(errorResult(call.toolName, QStringLiteral("mode 仅支持 sync/push：%1").arg(mode), call.id));
         return;
     }
     const QString baseDir = ephemeral ? m_ephemeralDir : m_toolDir;
     if (baseDir.isEmpty()) {
         done(errorResult(call.toolName,
                          ephemeral ? QStringLiteral("临时工具目录未配置")
-                                   : QStringLiteral("工具目录未配置")));
+                                   : QStringLiteral("工具目录未配置"),
+                         call.id));
         return;
     }
 
@@ -493,13 +496,13 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
 
     const QString subdir = baseDir + QLatin1Char('/') + ctx.agentId;
     if (!QDir().mkpath(subdir)) {
-        done(errorResult(call.toolName, QStringLiteral("无法创建工具目录：%1").arg(subdir)));
+        done(errorResult(call.toolName, QStringLiteral("无法创建工具目录：%1").arg(subdir), call.id));
         return;
     }
     const QString filePath = subdir + QLatin1Char('/') + name + QLatin1Char('.') + language;
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        done(errorResult(call.toolName, QStringLiteral("无法写入工具文件：%1").arg(filePath)));
+        done(errorResult(call.toolName, QStringLiteral("无法写入工具文件：%1").arg(filePath), call.id));
         return;
     }
     QJsonObject manifest;
@@ -518,7 +521,8 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     emit toolsChanged();
     done(okResult(call.toolName,
                   QStringLiteral("工具已创建：%1（%2，%3）")
-                      .arg(name, language, mode)));
+                      .arg(name, language, mode),
+                  call.id));
 }
 
 void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeContext &ctx,
@@ -527,11 +531,11 @@ void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeCo
     const QString name = call.input.value(QStringLiteral("name")).toString().trimmed();
     const bool keepFile = call.input.value(QStringLiteral("keep_file")).toBool(false);
     if (name == QStringLiteral("create_tool") || name == QStringLiteral("delete_tool")) {
-        done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name)));
+        done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name), call.id));
         return;
     }
     if (!m_tools.contains(name)) {
-        done(errorResult(call.toolName, QStringLiteral("脚本工具不存在：%1").arg(name)));
+        done(errorResult(call.toolName, QStringLiteral("脚本工具不存在：%1").arg(name), call.id));
         return;
     }
     const ScriptTool tool = m_tools.value(name);
@@ -548,7 +552,8 @@ void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeCo
     emit toolsChanged();
     done(okResult(call.toolName,
                   keepFile ? QStringLiteral("工具已暂停：%1（文件保留）").arg(name)
-                           : QStringLiteral("工具已删除：%1").arg(name)));
+                           : QStringLiteral("工具已删除：%1").arg(name),
+                  call.id));
 }
 
 // ── 目录扫描 ──
