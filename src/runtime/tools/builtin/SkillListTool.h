@@ -15,7 +15,7 @@ class SkillListTool : public AbstractBuiltinTool
 public:
     [[nodiscard]] ToolSpec spec() const override;
     [[nodiscard]] QString progressKind() const override { return QStringLiteral("listing_skills"); }
-    void setSkillLoader(FileSkillLoader *loader) { m_loader = loader; }
+    void attachSkillLoader(FileSkillLoader *loader) override { m_loader = loader; }
     ToolResult execute(const ToolCall &call,
                        const QString &workspaceRoot,
                        const QString &workingDirectory,

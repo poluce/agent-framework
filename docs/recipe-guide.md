@@ -80,7 +80,7 @@ session.start();
 | `createUnit(request)` | 拒绝 | 宿主建单元走这里 |
 | `closeUnit(agentId)` | 拒绝 | 宿主关单元走这里。返回已从表移除的指针，调用方 `deleteLater` |
 
-`UnitCreateRequest` 字段全可选：`agentId` / `displayName` / `parentAgentId` / `workingDirectory` / `modelName` / `approvalMode`。`agentId` 非空时配方应尽量按该 id 插入（恢复账本）。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
+`UnitCreateRequest` 字段全可选：`agentId` / `displayName` / `parentAgentId` / `workingDirectory` / `modelName` / `approvalMode`。`agentId` 非空时按该 id 插入并返回该指针（恢复账本）。插入了别的 id 时，`importLedger` 把账本灌进返回值，不再另插一份。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
 
 ---
 

@@ -36,10 +36,12 @@ foreach(_rel IN ITEMS
     agent/AgentModePolicy.h
     agent/OrchestrationRegistry.h
     agent/AbstractLoop.h
+    tools/AbstractBuiltinTool.h
     tools/AbstractSession.h
     tools/AbstractSessionTool.h
     tools/AbstractToolSource.h
     tools/AbstractUnit.h
+    tools/BuiltinToolRegistry.h
     tools/BuiltinToolRuntime.h
     tools/SessionToolContext.h
     tools/ToolTypes.h

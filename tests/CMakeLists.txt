@@ -111,6 +111,16 @@ if(NOT AGENT_QT_USE_INSTALLED_FRAMEWORK)
     list(APPEND _fw_test_names agent_framework_install_layout)
 endif()
 
+set(_layer_check "${CMAKE_CURRENT_SOURCE_DIR}/check_layer_includes.cmake")
+if(EXISTS "${_layer_check}")
+    add_test(
+        NAME agent_framework_layer_includes
+        COMMAND ${CMAKE_COMMAND}
+            "-DSRC_ROOT=${_fw_root}"
+            -P "${_layer_check}")
+    list(APPEND _fw_test_names agent_framework_layer_includes)
+endif()
+
 set(_surface_check "${CMAKE_CURRENT_SOURCE_DIR}/check_client_include_surface.cmake")
 if(EXISTS "${_surface_check}" AND TARGET agent_framework_stage)
     add_test(

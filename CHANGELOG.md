@@ -20,17 +20,19 @@
 - `ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 迁到 `types/MediaAsset.h`。`ConversationMessage` 不再 include `providers/`。
 - `AgentSession::applyRuntimeToPrimary` 更名为 `applyRuntimeToUnits`。
 - `ProviderAudioAsset` / `ProviderVideoAsset` 迁到 `types/MediaAsset.h`。
+- `AgentSessionConfig.builtinTools`：nullopt 与空表都是无内置工具。编码工具集须显式传入 `BuiltinToolRegistry::defaultTools()`。
 
 ### 🟡 功能修改
 
 - `AbstractSession` 补上 Loop/Agent 原先向下转型去拿的能力：写协调器、是否主单元、角色/技能/段摘要/回合后 Idle、`notifyFileWritten`。`AbstractLoop` / `Agent` 不再 `static_cast<AgentSession*>`。
 - 会话 `commitRuntime` 把活配置同步到全部单元（不再只打 primary）。
-- `importLedger` 缺单元时先走 `createUnit`（`UnitCreateRequest.agentId` 供配方按原 id 插入），找不到再 `insertUnit`。
+- `importLedger` 缺单元时先走 `createUnit`（带原 `agentId`）。找不到该 id 则用返回的单元；仍没有再 `insertUnit`。
 - Agent / Session / Loop / CompactEngine 共用 `core_ir::EventHandlerRegistry` 增删 handler。
 - 写工具成功后调用 `notifyFileWritten`，同会话其他单元读缓存失效。
 - 工具可见性拒绝文案改为「该单元不可见此工具。」
 - 压缩策略（等队列 / 拼视图 / 开大压）从 `Agent` 迁到 `compact/CompactPipeline`。`Agent` 只转接 Loop 请求。
-- 内置工具表可注入：`AgentSessionConfig.builtinTools`（nullopt = 默认集；空表 = 无内置工具）。
+- `agent_runtime` 改为 INTERFACE，实现拆成 `agent_types` ← `agent_tools` ← `agent_providers` ← `agent_skills` ← `agent_agent`。配方仍链 `agent_framework`。
+- 公开 `tools/BuiltinToolRegistry.h` / `tools/AbstractBuiltinTool.h`。
 
 ## [0.5.3] - 2026-09-05
 

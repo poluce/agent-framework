@@ -43,7 +43,7 @@ AbstractLoop / Provider / BuiltinTools / CompactEngine
 | 层 | 库 | 职责 |
 |----|----|------|
 | 公开面 | `agent_framework`（INTERFACE） | 伞头 `framework/AgentFramework.h`；只导出 `runtime/` 短路径 |
-| 内核 | `agent_runtime` | 单元、会话表、Loop、工具、Provider、技能、注册表、内环 IR |
+| 内核 | `agent_runtime`（INTERFACE → `agent_agent`） | 分层静态库：`types` ← `tools` ← `providers` ← `skills` ← `agent` |
 | 共享 | `agent_shared` | 日志、ProcessSafety、PathGuard、`SessionRuntime` 字段表 |
 
 配方作者链 `agent_framework`，include `framework/AgentFramework.h`。不要去够宿主的 `CoreApplicationService` / `HostBus` / 具体配方头。
@@ -59,7 +59,7 @@ find_package(AgentFramework 0.5 REQUIRED)
 target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 ```
 
-头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表）。不装传输层（`HttpSseChannel`）、厂商适配器、内置工具实现。需要 Qt 6 Core + Network + Concurrent。
+头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表 / `BuiltinToolRegistry`）。不装传输层（`HttpSseChannel`）、厂商适配器、单个内置工具头（`GlobTool.h` 等）。编码工具从库里取：`cfg.builtinTools = BuiltinToolRegistry::defaultTools()`。需要 Qt 6 Core + Network + Concurrent。
 
 `find_package(AgentFramework 0.5)`；0.x 按 SameMinorVersion（0.5 不匹配 0.6）。in-tree `agent_framework` 与安装包同一份头闭包。
 
@@ -122,10 +122,10 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
 | `remainsIdleAfterTurn(unit)` | true | Completed 后是否回到 Idle（子单元常为 false） |
-| `createUnit(request)` | 拒绝 | 宿主建单元走这里。`parentAgentId` 只是可选元数据 |
+| `createUnit(request)` | 拒绝 | 宿主建单元走这里。`parentAgentId` 只是可选元数据。非空 `agentId` 按该 id 插入并返回该指针 |
 | `closeUnit(agentId)` | 拒绝 | 宿主关单元走这里。返回已从表移除的指针，调用方 `deleteLater` |
 
-`UnitCreateRequest` 字段全可选：`agentId`、`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。`agentId` 非空时配方应尽量按该 id 插入（恢复账本）。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
+`UnitCreateRequest` 字段全可选：`agentId`、`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。`agentId` 非空时按该 id 插入并返回该指针（恢复账本）。插入了别的 id 时，`importLedger` 把账本灌进返回值，不再另插一份。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
 
 ### 4.3 工具
 

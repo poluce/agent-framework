@@ -465,13 +465,20 @@ void AgentSession::importLedger(const QJsonObject &json,
         if (!agent) {
             const QString displayName = row.displayName.isEmpty() ? row.id : row.displayName;
             const QString parentId = row.obj.value(QStringLiteral("parentAgentId")).toString();
+            Agent *created = nullptr;
             if (m_config.orchestration) {
                 UnitCreateRequest request;
                 request.agentId = row.id;
                 request.displayName = displayName;
                 request.parentAgentId = parentId;
-                (void)m_config.orchestration->createUnit(request);
+                created = m_config.orchestration->createUnit(request);
                 agent = findById(row.id);
+                if (!agent && created) {
+                    LOGW(LogCat::Agent) << "createUnit 未按 agentId 插入，账本灌进返回的单元"
+                        << logf("requestedId", row.id)
+                        << logf("createdId", created->agentId());
+                    agent = created;
+                }
             }
             if (!agent) {
                 agent = insertUnit(row.id, displayName);

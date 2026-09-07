@@ -52,7 +52,7 @@ struct AgentSessionConfig
     using TitleReady = std::function<void(const QString &title)>;
     using TitleGenerator = std::function<void(const QString &userText, TitleReady done)>;
     TitleGenerator titleGenerator;
-    /// 内置工具表。nullopt = 默认编码工具集；有值则只用这份（空表 = 无内置工具）。
+    /// 内置工具表。nullopt 与空表都是无内置工具。编码集传 BuiltinToolRegistry::defaultTools()。
     std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools;
 };
 
@@ -145,7 +145,8 @@ public:
      */
     QJsonObject exportLedger() const;
     /**
-     * 把导出的账本 JSON 灌进本会话：缺失单元会 insertUnit。
+     * 把导出的账本 JSON 灌进本会话。缺单元时先 createUnit（带原 agentId）；
+     * 找不到该 id 则用 createUnit 的返回值；仍没有再 insertUnit。
      * 主单元优先插入（键 isPrimary）；无标记则数组第一项。
      * runtime 恢复 + ledger fromJson。与 /resume 恢复语义一致。
      * @param workingDirectoryOverride 非空时覆盖各 agent 的 workingDirectory

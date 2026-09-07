@@ -1,7 +1,9 @@
 #pragma once
 
-#include "ToolTypes.h"
 #include "AbstractSession.h"
+#include "BuiltinToolRegistry.h"
+#include "SessionToolRuntime.h"
+#include "ToolTypes.h"
 #include "config/AgentMode.h"
 #include "logging/LogManager.h"
 
@@ -14,36 +16,10 @@
 #include <memory>
 #include <optional>
 
-#include "SessionToolRuntime.h"
-
 class AbstractBuiltinTool;
 class AbstractToolSource;
 class AbstractUnit;
 class BuiltinToolRuntime;
-
-// ====================================================================
-// BuiltinToolRegistry — 内置工具目录
-// ====================================================================
-class BuiltinToolRegistry
-{
-public:
-    /// nullopt = defaultTools()；有值则只用这份表（可空）。
-    explicit BuiltinToolRegistry(
-        std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> tools = std::nullopt);
-
-    [[nodiscard]] static QList<std::shared_ptr<AbstractBuiltinTool>> defaultTools();
-
-    QList<ToolSpec> specs() const;
-    ToolSpec specForName(const QString &toolName) const;
-    ToolPermissionDecision evaluatePermission(const QString &toolName,
-                                              ToolScope toolScope,
-                                              ApprovalMode approvalMode) const;
-
-    [[nodiscard]] std::shared_ptr<AbstractBuiltinTool> builtinTool(const QString &toolName) const;
-
-private:
-    QHash<QString, std::shared_ptr<AbstractBuiltinTool>> m_builtinTools;
-};
 
 // ====================================================================
 // ToolCoordinator — 工具源表：内置 / 会话 / 外部（先登记的赢）

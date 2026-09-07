@@ -1,9 +1,13 @@
+#include "agent/AbstractLoop.h"
 #include "agent/AbstractOrchestration.h"
 #include "agent/Agent.h"
 #include "agent/AgentSession.h"
 #include "agent/compact/CompactPipeline.h"
 #include "config/SessionRuntime.h"
+#include "providers/core/AbstractProvider.h"
+#include "providers/service/ProviderCredential.h"
 #include "tools/AbstractBuiltinTool.h"
+#include "tools/BuiltinToolRegistry.h"
 #include "tools/BuiltinToolRuntime.h"
 #include "tools/ToolCoordinator.h"
 #include "types/ConversationMessage.h"
@@ -52,6 +56,65 @@ private:
     AgentSession *m_session = nullptr;
 };
 
+class IgnoreIdOrch final : public AbstractOrchestration
+{
+public:
+    AbstractToolSource *toolSource() override { return nullptr; }
+    void attach(AgentSession *session) override { m_session = session; }
+    void detach() override { m_session = nullptr; }
+    Agent *createUnit(const UnitCreateRequest &request) override
+    {
+        requestedIds.append(request.agentId);
+        if (!m_session) {
+            return nullptr;
+        }
+        const QString id = QStringLiteral("spawned-1");
+        if (Agent *existing = m_session->findById(id)) {
+            return existing;
+        }
+        return m_session->insertUnit(id,
+                                     request.displayName.isEmpty() ? id : request.displayName);
+    }
+    QStringList requestedIds;
+
+private:
+    AgentSession *m_session = nullptr;
+};
+
+constexpr auto kHangProvider = "boundary-hang";
+
+class HangProvider final : public AbstractProvider
+{
+public:
+    HangProvider()
+        : AbstractProvider(QString::fromLatin1(kHangProvider))
+    {
+    }
+
+protected:
+    ProviderError validateProviderRequest(const ProviderRequest &) const override { return {}; }
+    ProviderTransportRequest buildProviderTransportRequest(const ProviderRequest &) const override
+    {
+        ProviderTransportRequest transport;
+        transport.body = QByteArrayLiteral("{}");
+        return transport;
+    }
+    QList<ProviderEvent> parseProviderTransportPayload(const ProviderTransportPayload &) override
+    {
+        return {};
+    }
+    void resetProviderTurnState() override {}
+    bool startProviderTransportRequest(const ProviderTransportRequest &, ProviderError *) override
+    {
+        return true;
+    }
+    QUrl buildModelsUrl(const QString &) const override { return {}; }
+    QList<ModelCapabilities> parseModelsPayload(const QByteArray &, QString *) const override
+    {
+        return {};
+    }
+};
+
 SessionRuntime makeRuntime(const QString &workDir)
 {
     SessionRuntime runtime;
@@ -73,9 +136,12 @@ private slots:
     void titleGenerator_runsWhenUntitled();
     void titleGenerator_skipsHardcodedNewSession();
     void importLedger_goesThroughCreateUnit();
+    void importLedger_usesReturnedUnitWhenIdIgnored();
     void notifyFileWritten_invalidatesOtherUnitCache();
-    void emptyBuiltinTools_hidesGrep();
+    void defaultBuiltinTools_empty();
+    void defaultTools_includesGrep();
     void compactPipeline_cancelWhenIdle();
+    void compactPipeline_cancelKeepsPendingSummaryJob();
     void mediaAssets_audioVideoRoundTrip();
 };
 
@@ -196,6 +262,34 @@ void KernelBoundaryTests::importLedger_goesThroughCreateUnit()
     QVERIFY(session.findById(QStringLiteral("restored-7")));
 }
 
+void KernelBoundaryTests::importLedger_usesReturnedUnitWhenIdIgnored()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    SessionRuntime defaults = makeRuntime(tmp.path());
+    IgnoreIdOrch orch;
+    AgentSessionConfig cfg;
+    cfg.globalDefaults = &defaults;
+    cfg.orchestration = &orch;
+    AgentSession session(cfg);
+    session.setRuntime(defaults);
+
+    QJsonObject agentObj;
+    agentObj.insert(QStringLiteral("agentId"), QStringLiteral("restored-7"));
+    agentObj.insert(QStringLiteral("displayName"), QStringLiteral("Restored"));
+    agentObj.insert(QStringLiteral("isPrimary"), true);
+    QJsonObject root;
+    QJsonArray agents;
+    agents.append(agentObj);
+    root.insert(QStringLiteral("agents"), agents);
+
+    session.importLedger(root);
+    QCOMPARE(orch.requestedIds, QStringList{QStringLiteral("restored-7")});
+    QCOMPARE(session.count(), 1);
+    QVERIFY(session.findById(QStringLiteral("spawned-1")));
+    QVERIFY(!session.findById(QStringLiteral("restored-7")));
+}
+
 void KernelBoundaryTests::notifyFileWritten_invalidatesOtherUnitCache()
 {
     QTemporaryDir tmp;
@@ -222,14 +316,13 @@ void KernelBoundaryTests::notifyFileWritten_invalidatesOtherUnitCache()
     QVERIFY(reader->loop()->builtinRuntime().readFileState(path).content.isEmpty());
 }
 
-void KernelBoundaryTests::emptyBuiltinTools_hidesGrep()
+void KernelBoundaryTests::defaultBuiltinTools_empty()
 {
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
     SessionRuntime defaults = makeRuntime(tmp.path());
     AgentSessionConfig cfg;
     cfg.globalDefaults = &defaults;
-    cfg.builtinTools = QList<std::shared_ptr<AbstractBuiltinTool>>{};
     AgentSession session(cfg);
     session.setRuntime(defaults);
     QVERIFY(session.insertUnit(QStringLiteral("agent-0"), QStringLiteral("Main")));
@@ -243,6 +336,27 @@ void KernelBoundaryTests::emptyBuiltinTools_hidesGrep()
     QVERIFY(!sawGrep);
 }
 
+void KernelBoundaryTests::defaultTools_includesGrep()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    SessionRuntime defaults = makeRuntime(tmp.path());
+    AgentSessionConfig cfg;
+    cfg.globalDefaults = &defaults;
+    cfg.builtinTools = BuiltinToolRegistry::defaultTools();
+    AgentSession session(cfg);
+    session.setRuntime(defaults);
+    QVERIFY(session.insertUnit(QStringLiteral("agent-0"), QStringLiteral("Main")));
+
+    bool sawGrep = false;
+    for (const ToolSpec &spec : session.coordinator()->allSpecs()) {
+        if (spec.name == QLatin1String("grep")) {
+            sawGrep = true;
+        }
+    }
+    QVERIFY(sawGrep);
+}
+
 void KernelBoundaryTests::compactPipeline_cancelWhenIdle()
 {
     CompactPipeline pipeline(QStringLiteral("agent-0"));
@@ -252,6 +366,51 @@ void KernelBoundaryTests::compactPipeline_cancelWhenIdle()
     QVERIFY(!pipeline.hasQueue());
     pipeline.ensureInstalled(true);
     QVERIFY(pipeline.hasQueue());
+}
+
+void KernelBoundaryTests::compactPipeline_cancelKeepsPendingSummaryJob()
+{
+    AbstractLoop loop;
+    CompactPipeline pipeline(QStringLiteral("agent-0"));
+    pipeline.setLoop(&loop);
+
+    SessionRuntime runtime;
+    runtime.workingDirectory = QStringLiteral("/tmp");
+    runtime.compactEnabled = true;
+    runtime.summaryEnabled = true;
+    runtime.summarySegmentTokens = 1;
+    pipeline.setRuntime(runtime);
+
+    ProviderCredential cred;
+    const QString instanceId = cred.createInstance(
+        QString::fromLatin1(kHangProvider),
+        QStringLiteral("hang"),
+        QStringLiteral("https://example.test"),
+        QStringLiteral("key"));
+    QVERIFY(!instanceId.isEmpty());
+    runtime.credentialInstanceId = instanceId;
+    runtime.modelName = QStringLiteral("hang-model");
+    pipeline.setRuntime(runtime);
+    pipeline.setCredentialStore(&cred);
+    pipeline.setProviderFactory([](const QString &) {
+        return std::make_unique<HangProvider>();
+    });
+    pipeline.ensureInstalled(true);
+
+    ConversationMessage user;
+    user.kind = ConversationMessage::Kind::UserText;
+    user.text = QStringLiteral("一段足够触发段摘要阈值的用户话");
+    user.submittedToModel = true;
+    loop.ledger().appendUiIngress(user);
+
+    pipeline.onTurnSucceeded();
+    QCOMPARE(pipeline.jobCount(), 1);
+
+    pipeline.onCompactionRequested(999999, 1);
+    QVERIFY(pipeline.waitingAtBoundary());
+    QVERIFY(pipeline.cancelBoundaryWait());
+    QVERIFY(!pipeline.waitingAtBoundary());
+    QCOMPARE(pipeline.jobCount(), 1);
 }
 
 void KernelBoundaryTests::mediaAssets_audioVideoRoundTrip()

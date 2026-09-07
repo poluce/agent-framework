@@ -10,42 +10,15 @@
 #include <QSet>
 #include <memory>
 
-#include "builtin/GlobTool.h"
-#include "builtin/ReadFileTool.h"
-#include "builtin/GrepTool.h"
-#include "builtin/WriteFileTool.h"
-#include "builtin/EditTool.h"
-#include "builtin/NotebookEditTool.h"
-#include "builtin/RunCommandTool.h"
-#include "builtin/SkillListTool.h"
-#include "builtin/AskQuestionTool.h"
-#include "builtin/MultiEditTool.h"
-
 // ====================================================================
 // BuiltinToolRegistry
 // ====================================================================
-
-QList<std::shared_ptr<AbstractBuiltinTool>> BuiltinToolRegistry::defaultTools()
-{
-    QList<std::shared_ptr<AbstractBuiltinTool>> tools;
-    tools.append(std::make_shared<GlobTool>());
-    tools.append(std::make_shared<ReadFileTool>());
-    tools.append(std::make_shared<GrepTool>());
-    tools.append(std::make_shared<WriteFileTool>());
-    tools.append(std::make_shared<EditTool>());
-    tools.append(std::make_shared<NotebookEditTool>());
-    tools.append(std::make_shared<RunCommandTool>());
-    tools.append(std::make_shared<SkillListTool>());
-    tools.append(std::make_shared<AskQuestionTool>());
-    tools.append(std::make_shared<MultiEditTool>());
-    return tools;
-}
 
 BuiltinToolRegistry::BuiltinToolRegistry(
     std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> tools)
 {
     const QList<std::shared_ptr<AbstractBuiltinTool>> list =
-        tools.has_value() ? *tools : defaultTools();
+        tools.value_or(QList<std::shared_ptr<AbstractBuiltinTool>>{});
     for (const auto &tool : list) {
         const ToolSpec spec = tool->spec();
         const QString canonicalName = spec.name.trimmed();
@@ -201,9 +174,8 @@ ToolCoordinator::ToolCoordinator(AbstractSession *session,
     m_sessionSource = new SessionToolSource(m_sessionRuntime.get(), this);
     addSource(externalSource, QString());
     if (session) {
-        if (auto skillList = std::dynamic_pointer_cast<SkillListTool>(
-                m_registry.builtinTool(QStringLiteral("skill_list")))) {
-            skillList->setSkillLoader(session->skillLoader());
+        if (auto skillList = m_registry.builtinTool(QStringLiteral("skill_list"))) {
+            skillList->attachSkillLoader(session->skillLoader());
         }
     }
 }
