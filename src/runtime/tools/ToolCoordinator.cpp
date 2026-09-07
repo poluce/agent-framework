@@ -10,44 +10,16 @@
 #include <QSet>
 #include <memory>
 
-#include "builtin/GlobTool.h"
-#include "builtin/ReadFileTool.h"
-#include "builtin/GrepTool.h"
-#include "builtin/WriteFileTool.h"
-#include "builtin/EditTool.h"
-#include "builtin/NotebookEditTool.h"
-#include "builtin/RunCommandTool.h"
-#include "builtin/SkillListTool.h"
-#include "builtin/AskQuestionTool.h"
-#include "builtin/MultiEditTool.h"
-
-namespace {
-
-QList<std::shared_ptr<AbstractBuiltinTool>> allBuiltinTools()
-{
-    QList<std::shared_ptr<AbstractBuiltinTool>> tools;
-    tools.append(std::make_shared<GlobTool>());
-    tools.append(std::make_shared<ReadFileTool>());
-    tools.append(std::make_shared<GrepTool>());
-    tools.append(std::make_shared<WriteFileTool>());
-    tools.append(std::make_shared<EditTool>());
-    tools.append(std::make_shared<NotebookEditTool>());
-    tools.append(std::make_shared<RunCommandTool>());
-    tools.append(std::make_shared<SkillListTool>());
-    tools.append(std::make_shared<AskQuestionTool>());
-    tools.append(std::make_shared<MultiEditTool>());
-    return tools;
-}
-
-} // namespace
-
 // ====================================================================
 // BuiltinToolRegistry
 // ====================================================================
 
-BuiltinToolRegistry::BuiltinToolRegistry()
+BuiltinToolRegistry::BuiltinToolRegistry(
+    std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> tools)
 {
-    for (const auto &tool : allBuiltinTools()) {
+    const QList<std::shared_ptr<AbstractBuiltinTool>> list =
+        tools.value_or(QList<std::shared_ptr<AbstractBuiltinTool>>{});
+    for (const auto &tool : list) {
         const ToolSpec spec = tool->spec();
         const QString canonicalName = spec.name.trimmed();
         if (canonicalName.isEmpty()) continue;
@@ -191,18 +163,19 @@ private:
 
 ToolCoordinator::ToolCoordinator(AbstractSession *session,
                                  AbstractToolSource *externalSource,
+                                 std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools,
                                  QObject *parent)
     : QObject(parent)
     , m_session(session)
+    , m_registry(std::move(builtinTools))
     , m_sessionRuntime(std::make_unique<SessionToolRuntime>(session, this))
 {
     m_builtinSource = new BuiltinToolSource(&m_registry, this);
     m_sessionSource = new SessionToolSource(m_sessionRuntime.get(), this);
     addSource(externalSource, QString());
     if (session) {
-        if (auto skillList = std::dynamic_pointer_cast<SkillListTool>(
-                m_registry.builtinTool(QStringLiteral("skill_list")))) {
-            skillList->setSkillLoader(session->skillLoader());
+        if (auto skillList = m_registry.builtinTool(QStringLiteral("skill_list"))) {
+            skillList->attachSkillLoader(session->skillLoader());
         }
     }
 }
@@ -370,7 +343,7 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
             tr.success = false;
             tr.isError = true;
             tr.category = ToolResultCategory::Error;
-            tr.text = QStringLiteral("只有主 agent 可以使用此工具。");
+            tr.text = QStringLiteral("该单元不可见此工具。");
             completion(tr);
             return;
         }

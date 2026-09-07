@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.5.3**。只依赖 Qt 6 Core + Network + Concurrent。
+本文件是 **AgentFramework 内核** 的目标与边界。包版本 **0.6.0**。只依赖 Qt 6 Core + Network + Concurrent。
 
 不是 GUI/TUI 手册，也不是 Host 协议。宿主怎么把本内核嵌进桌面应用，见上层产品仓的 `docs/agent-framework.md`。
 
@@ -43,7 +43,7 @@ AbstractLoop / Provider / BuiltinTools / CompactEngine
 | 层 | 库 | 职责 |
 |----|----|------|
 | 公开面 | `agent_framework`（INTERFACE） | 伞头 `framework/AgentFramework.h`；只导出 `runtime/` 短路径 |
-| 内核 | `agent_runtime` | 单元、会话表、Loop、工具、Provider、技能、注册表、内环 IR |
+| 内核 | `agent_runtime`（INTERFACE → `agent_agent`） | 分层静态库：`types` ← `tools` ← `providers` ← `skills` ← `agent` |
 | 共享 | `agent_shared` | 日志、ProcessSafety、PathGuard、`SessionRuntime` 字段表 |
 
 配方作者链 `agent_framework`，include `framework/AgentFramework.h`。不要去够宿主的 `CoreApplicationService` / `HostBus` / 具体配方头。
@@ -55,13 +55,13 @@ cmake --install <build> --prefix <prefix> --component AgentFramework
 ```
 
 ```cmake
-find_package(AgentFramework 0.5 REQUIRED)
+find_package(AgentFramework 0.6 REQUIRED)
 target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 ```
 
-头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表）。不装传输层（`HttpSseChannel`）、厂商适配器、内置工具实现。需要 Qt 6 Core + Network + Concurrent。
+头装在 `<prefix>/include/agent-framework/`（`framework/AgentFramework.h`）。**只装公开闭包**：伞头 + 注入面（`AbstractProvider` / 凭据 / 技能加载 / Provider 注册表 / `BuiltinToolRegistry`）。不装传输层（`HttpSseChannel`）、厂商适配器、单个内置工具头（`GlobTool.h` 等）。编码工具从库里取：`cfg.builtinTools = BuiltinToolRegistry::defaultTools()`。需要 Qt 6 Core + Network + Concurrent。
 
-`find_package(AgentFramework 0.5)`；0.x 按 SameMinorVersion（0.5 不匹配 0.6）。in-tree `agent_framework` 与安装包同一份头闭包。
+`find_package(AgentFramework 0.6)`；0.x 按 SameMinorVersion（0.6 不匹配 0.7）。in-tree `agent_framework` 与安装包同一份头闭包。
 
 仓外最小宿主：`examples/minimal`（自写单单元配方 + 假 Provider，跑完一轮；不访问网络）。
 
@@ -117,15 +117,15 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 对非主单元隐藏 spawn/config/mcp 等 |
 | `skillVisible(unit, skillName)` | 全可见 | 按单元裁剪 `<available_skills>` 块（skillName = 技能目录名）；内核按单元组装 |
-| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/` |
+| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/`（角色模板由宿主/配方提供） |
 | 模式文案 | 策略填 `AgentPromptContext.modePromptFile` | 只返回 basename。内核 `SystemPromptBuilder` 不认 `AgentMode` |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
 | `remainsIdleAfterTurn(unit)` | true | Completed 后是否回到 Idle（子单元常为 false） |
-| `createUnit(request)` | 拒绝 | 宿主建单元走这里。`parentAgentId` 只是可选元数据 |
+| `createUnit(request)` | 拒绝 | 宿主建单元走这里。`parentAgentId` 只是可选元数据。非空 `agentId` 按该 id 插入并返回该指针 |
 | `closeUnit(agentId)` | 拒绝 | 宿主关单元走这里。返回已从表移除的指针，调用方 `deleteLater` |
 
-`UnitCreateRequest` 字段全可选：`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
+`UnitCreateRequest` 字段全可选：`agentId`、`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。`agentId` 非空时按该 id 插入并返回该指针（恢复账本）。插入了别的 id 时，`importLedger` 把账本灌进返回值，不再另插一份。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
 
 ### 4.3 工具
 
@@ -181,7 +181,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 |----|------|
 | 运行时绑 Qt | `QObject` + Qt Network + 事件循环 |
 | 日志宏 | `LOGI` 走 `LogManager::instance()`。未 `init` / 未注入目录则不写文件 |
-| 执行配置字段 | **0.5 冻结**：`SessionRuntime`（模型/压缩/审批/段摘要/邮箱…）。增删字段须改 `src/shared/config/SessionRuntime.fields.h` 并更新 `tests/SessionRuntimeFieldsTests.cpp` |
+| 执行配置字段 | **0.6 冻结**：`SessionRuntime`（模型/压缩/审批/段摘要/邮箱…）。增删字段须改 `src/shared/config/SessionRuntime.fields.h` 并更新 `tests/SessionRuntimeFieldsTests.cpp` |
 
 Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agents/skills/update-provider-protocol`。
 
@@ -199,7 +199,7 @@ Provider 协议正文：`docs/协议/provider-protocol.md`。改协议走 `.agen
 | `src/runtime/agent/AgentModePolicy.h` | 模式策略口（具体策略由宿主注入） |
 | `src/runtime/tools/ScriptToolSource.*` | 脚本工具桥：磁盘脚本 → 工具；create_tool/delete_tool 元工具 |
 | `src/shared/config/SessionRuntime.h` | 执行配置（含 `SessionRuntime.fields.h` 字段表） |
-| `src/runtime/types/` | 公共类型层：ConversationMessage / CoreEvent / CoreEventChannel |
+| `src/runtime/types/` | 公共类型层：ConversationMessage / MediaAsset / CoreEvent（执行单元内环事件）/ CoreEventChannel |
 | `docs/TODO.md` | 技术债清单（已知耦合与待办重构） |
 | `docs/recipe-guide.md` | **面向配方作者**的编排指南（用户文档；AGENTS.md 是内核边界文档） |
 | `docs/测试/coverage.md` | 测试覆盖率方案与踩坑记录 |

@@ -1,7 +1,6 @@
 #include "Agent.h"
-#include "agent/AbstractOrchestration.h"
-#include "agent/AgentSession.h"
-#include "agent/compact/ModelViewAssembler.h"
+#include "agent/compact/CompactPipeline.h"
+#include "tools/AbstractSession.h"
 #include "config/SystemPromptBuilder.h"
 #include "tools/ToolCoordinator.h"
 #include "providers/service/ProviderService.h"
@@ -26,7 +25,7 @@ Agent::Agent(const QString &agentId,
     , m_runtime(runtime)
     , m_providerFactory(nullptr)
     , m_loop(std::make_unique<AbstractLoop>(this))
-    , m_compactEngine(std::make_unique<CompactEngine>(this))
+    , m_compact(std::make_unique<CompactPipeline>(m_agentId))
     , m_taskManager(std::make_unique<AgentTaskManager>(this))
 {
     Q_ASSERT_X(!m_runtime.workingDirectory.trimmed().isEmpty(),
@@ -51,8 +50,7 @@ Agent::Agent(const QString &agentId,
         auto emitToHandlers = [this](const core_ir::Event &out,
                                      const core_ir::EventContext &ctx,
                                      const core_ir::SubmissionId &sid) {
-            for (auto &handler : m_protocolHandlers)
-                handler(out, ctx, sid);
+            m_protocolHandlers.dispatch(out, ctx, sid);
         };
 
         if (const auto *state = std::get_if<core_ir::EventAgentStateChanged>(&event); state) {
@@ -67,23 +65,20 @@ Agent::Agent(const QString &agentId,
         emitToHandlers(event, context, submissionId);
     });
 
-    // 连接压缩请求
-    connect(m_loop.get(), &AbstractLoop::compactionRequested, this,
-            &Agent::onCompactionRequested);
-    connect(m_loop.get(), &AbstractLoop::turnSucceeded, this,
-            &Agent::onTurnSucceededForSummary);
-    connect(m_compactEngine.get(), &CompactEngine::compactionFinished, this,
-            &Agent::onCompactionFinished);
-    connect(m_compactEngine.get(), &CompactEngine::compactionFailed, this,
-            &Agent::onCompactionFailed);
-
-    // CompactEngine → 内环 Event fan-out
-    m_compactEngine->addProtocolHandler([this](const core_ir::Event &event,
-                                               const core_ir::EventContext &context,
-                                               const core_ir::SubmissionId &submissionId) {
-        for (auto &handler : m_protocolHandlers)
-            handler(event, context, submissionId);
-    });
+    m_compact->setLoop(m_loop.get());
+    m_compact->setRuntime(m_runtime);
+    connect(m_loop.get(), &AbstractLoop::compactionRequested, m_compact.get(),
+            &CompactPipeline::onCompactionRequested);
+    connect(m_loop.get(), &AbstractLoop::turnSucceeded, m_compact.get(),
+            &CompactPipeline::onTurnSucceeded);
+    connect(m_compact.get(), &CompactPipeline::protocolEvent, this,
+            [this](const core_ir::Event &event) {
+                m_protocolHandlers.dispatch(event);
+            });
+    connect(m_compact.get(), &CompactPipeline::unitStateChanged, this, &Agent::stateChanged);
+    connect(m_compact.get(), &CompactPipeline::unitDataChanged, this, &Agent::dataChanged);
+    connect(m_compact.get(), &CompactPipeline::agentStateRefreshNeeded, this,
+            &Agent::emitAgentStateProtocolEvent);
 
     LOGD(LogCat::Agent) << "创建 Agent"
         << logf("agentId", m_agentId)
@@ -94,9 +89,7 @@ Agent::~Agent()
 {
     clearSummaryState();
     clearInbox(QStringLiteral("agent_destroyed"));
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{core_ir::EventShutdownComplete{}}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{core_ir::EventShutdownComplete{}});
 }
 
 // ── 标识 ──
@@ -136,6 +129,9 @@ void Agent::applySessionSettings(const SessionRuntime &settings)
     if (m_loop) {
         m_loop->applyRuntimeConfig(m_runtime);
     }
+    if (m_compact) {
+        m_compact->setRuntime(m_runtime);
+    }
 }
 
 QString Agent::sessionUuid() const
@@ -170,56 +166,36 @@ void Agent::setCoordinator(ToolCoordinator *coordinator)
     if (m_loop) {
         m_loop->setCoordinator(coordinator);
     }
-    ensureSegmentSummaryPipeline();
-}
-
-AbstractOrchestration *Agent::orchestration() const
-{
-    if (!m_coordinator) {
-        return nullptr;
+    AbstractSession *session = coordinator ? coordinator->session() : nullptr;
+    if (m_compact) {
+        m_compact->ensureInstalled(session && session->usesSegmentSummary(m_agentId));
     }
-    auto *session = static_cast<AgentSession *>(m_coordinator->session());
-    return session ? session->orchestration() : nullptr;
-}
-
-void Agent::ensureSegmentSummaryPipeline()
-{
-    if (m_summaryQueue) {
-        return;
-    }
-    AbstractOrchestration *orch = orchestration();
-    if (!orch || !orch->usesSegmentSummary(this)) {
-        return;
-    }
-    m_summaryQueue = std::make_unique<SummaryJobQueue>(this);
-    m_summaryQueue->setCompactEngine(m_compactEngine.get());
-    connect(m_summaryQueue.get(), &SummaryJobQueue::jobFinished, this,
-            &Agent::onSummaryJobFinished);
-    connect(m_summaryQueue.get(), &SummaryJobQueue::queueDrained, this,
-            &Agent::resumeBoundaryAfterSummaryDrain);
 }
 
 bool Agent::remainsIdleAfterTurn() const
 {
-    AbstractOrchestration *orch = orchestration();
-    if (!orch) {
+    AbstractSession *session = m_coordinator ? m_coordinator->session() : nullptr;
+    if (!session) {
         return true;
     }
-    return orch->remainsIdleAfterTurn(this);
+    return session->remainsIdleAfterTurn(m_agentId);
 }
 
 void Agent::setProviderFactory(ProviderFactory factory)
 {
     m_providerFactory = std::move(factory);
     m_loop->setProviderFactory(m_providerFactory);
+    if (m_compact) {
+        m_compact->setProviderFactory(m_providerFactory);
+    }
 }
 
 void Agent::setPromptBuilder(SystemPromptBuilder *builder)
 {
     m_promptBuilder = builder;
     m_loop->setPromptBuilder(builder);
-    if (m_compactEngine) {
-        m_compactEngine->setPromptBuilder(builder);
+    if (m_compact) {
+        m_compact->setPromptBuilder(builder);
     }
 }
 
@@ -232,6 +208,9 @@ void Agent::setCredentialStore(ProviderCredential *credentialStore)
 {
     m_credentialStore = credentialStore;
     m_loop->setCredentialStore(credentialStore);
+    if (m_compact) {
+        m_compact->setCredentialStore(credentialStore);
+    }
 }
 
 void Agent::setToolResultStoreDirectory(const QString &directoryPath)
@@ -325,10 +304,7 @@ qint64 Agent::currentContextTokenEstimate() const { return m_loop->currentContex
 
 qint64 Agent::segmentSummaryAddedTokens() const
 {
-    if (!summaryFeaturesEnabled() || !m_loop) {
-        return 0;
-    }
-    return ModelViewAssembler::estimateTokensSince(m_loop->ledger(), segmentSummaryCursor());
+    return m_compact ? m_compact->addedTokens() : 0;
 }
 
 QString Agent::workingDirectory() const { return m_runtime.workingDirectory; }
@@ -362,9 +338,7 @@ void Agent::emitAgentStateProtocolEvent()
         pendingNextTurnPreviews(),
         segmentSummaryAddedTokens()
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxEnqueued(const AgentInboxMessage &msg)
@@ -372,9 +346,7 @@ void Agent::emitInboxEnqueued(const AgentInboxMessage &msg)
     const core_ir::EventInboxMessageEnqueued payload{
         msg.id, msg.fromAgentId, m_agentId, msg.priority
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxDelivered(const AgentInboxMessage &msg)
@@ -382,9 +354,7 @@ void Agent::emitInboxDelivered(const AgentInboxMessage &msg)
     const core_ir::EventInboxMessageDelivered payload{
         msg.id, msg.fromAgentId, m_agentId
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason)
@@ -392,9 +362,7 @@ void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason
     const core_ir::EventInboxMessageDropped payload{
         msg.id, msg.fromAgentId, m_agentId, reason
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 // ── 操作 ──
@@ -510,29 +478,17 @@ void Agent::cancelCurrentTurn()
 {
     LOGI(LogCat::Agent) << "取消当前 Turn"
         << logf("agentId", m_agentId)
-        << logf("boundaryWait", m_waitingSummaryAtBoundary);
+        << logf("boundaryWait", m_compact && m_compact->waitingAtBoundary());
 
-    // G4a：边界等摘要 — abort 在飞、保留队列、结束等待
-    if (m_waitingSummaryAtBoundary) {
-        m_waitingSummaryAtBoundary = false;
-        if (m_summaryQueue) {
-            m_summaryQueue->abortRunning();
-        }
-        m_loop->endBoundarySummaryWait(true);
+    if (m_compact && m_compact->cancelBoundaryWait()) {
         handleLoopStateChanged();
         return;
     }
 
-    // G4b / 途中：先 abort 段摘要（保留队列），再停大压。
-    // 禁止对 summaryOnly 直接 cancel（否则 job 会被误标 Failed）。
-    if (m_summaryQueue && m_summaryQueue->hasRunning()) {
-        m_summaryQueue->abortRunning();
-    }
     m_loop->cancel();
-    if (m_compactEngine->isRunning()) {
-        m_compactEngine->cancel();
+    if (m_compact) {
+        m_compact->cancelInFlight();
     }
-    m_manualCompaction = false;
     handleLoopStateChanged();
 }
 
@@ -569,9 +525,7 @@ void Agent::appendSessionEvent(const QString &text)
     emit dataChanged();
 
     // ProtocolEvent
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{core_ir::EventSessionEvent{m_agentId, text.trimmed()}}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{core_ir::EventSessionEvent{m_agentId, text.trimmed()}});
 }
 
 void Agent::submitUserMessageWithSkill(const QString &message,
@@ -732,15 +686,12 @@ QList<ConversationMessage> Agent::ledgerMessages() const
 
 core_ir::HandlerId Agent::addEventHandler(core_ir::EventHandler handler)
 {
-    m_protocolHandlers.push_back(std::move(handler));
-    return reinterpret_cast<core_ir::HandlerId>(m_protocolHandlers.size());
+    return m_protocolHandlers.add(std::move(handler));
 }
 
 void Agent::removeEventHandler(core_ir::HandlerId id)
 {
-    Q_UNUSED(id);
-    // 本对象只挂会话转发这一个 handler；remove 即清空。
-    m_protocolHandlers.clear();
+    m_protocolHandlers.remove(id);
 }
 
 // ── 内部 ──
@@ -764,457 +715,65 @@ void Agent::handleLoopDataChanged()
     emit dataChanged();
 }
 
-void Agent::onCompactionRequested(const qint64 currentTokens, const qint64 threshold)
-{
-    LOGI(LogCat::Agent) << "收到压缩请求"
-        << logf("agentId", m_agentId)
-        << logf("currentTokens", currentTokens)
-        << logf("threshold", threshold);
-
-    m_manualCompaction = false;
-    m_boundaryThreshold = threshold;
-
-    if (!m_summaryQueue) {
-        startCompactionEngine();
-        return;
-    }
-
-    onBoundaryCompactionRequested(threshold);
-}
-
-void Agent::onBoundaryCompactionRequested(const qint64 threshold)
-{
-    m_boundaryThreshold = threshold;
-
-    if (!summaryFeaturesEnabled()) {
-        clearSummaryQueueForBulk();
-        startCompactionEngine();
-        return;
-    }
-
-    // 队列有未完成任务 → 等排空（D16）
-    if (m_summaryQueue->hasPendingOrRunning()) {
-        LOGI(LogCat::Agent) << "边界等待段摘要队列"
-            << logf("agentId", m_agentId)
-            << logf("jobs", m_summaryQueue->jobCount());
-        m_waitingSummaryAtBoundary = true;
-        m_loop->beginBoundarySummaryWait();
-        configureAndKickSummaryQueue();
-        return;
-    }
-
-    if (tryContinueWithAssembledView(threshold, true)) {
-        return;
-    }
-
-    clearSummaryQueueForBulk();
-    startCompactionEngine();
-}
-
 bool Agent::requestManualCompaction(const qint64 targetTokens)
 {
-    if (!m_loop || !m_compactEngine) {
-        return false;
-    }
-    if (m_manualCompaction) {
-        LOGW(LogCat::Agent) << "手动压缩拒绝：已在手动压缩"
-            << logf("agentId", m_agentId);
-        return false;
-    }
-
-    // G5：先 abort 段摘要并 clear 队列（途中 summaryOnly 占引擎会误拒大压）
-    m_waitingSummaryAtBoundary = false;
-    if (m_loop->isWaitingBoundarySummary()) {
-        m_loop->endBoundarySummaryWait(true);
-    }
-    clearSummaryQueueForBulk();
-
-    // Host 门禁已限 Idle；清完旁路后再挡真忙 / 真大压重入
-    if (m_loop->isBusy() || m_compactEngine->isRunning()) {
-        LOGW(LogCat::Agent) << "手动压缩拒绝：忙"
-            << logf("agentId", m_agentId)
-            << logf("loopBusy", m_loop->isBusy())
-            << logf("engineRunning", m_compactEngine->isRunning());
-        return false;
-    }
-
-    LOGI(LogCat::Agent) << "手动压缩开始"
-        << logf("agentId", m_agentId)
-        << logf("targetTokens", targetTokens);
-
-    m_manualCompaction = true;
-    m_loop->beginManualCompaction();
-    startCompactionEngine(targetTokens);
-    // 同步跳过会立刻 finished；异步则引擎在跑。两种都算受理。
-    return true;
+    return m_compact && m_compact->requestManualCompaction(targetTokens);
 }
 
 void Agent::clearSummaryState()
 {
-    m_waitingSummaryAtBoundary = false;
-    if (m_summaryQueue) {
-        m_summaryQueue->clear();
+    if (m_compact) {
+        m_compact->clear();
     }
-    m_summaryStore.clear();
-    m_modelViewStore.clear();
-    m_lastSummarizedEntryId.clear();
-    m_lastEnqueuedEntryId.clear();
-    if (m_loop) {
-        m_loop->clearModelViewPrefix();
-    }
+}
+
+bool Agent::hasSegmentSummaryQueue() const
+{
+    return m_compact && m_compact->hasQueue();
 }
 
 int Agent::segmentSummaryJobCount() const
 {
-    return m_summaryQueue ? m_summaryQueue->jobCount() : 0;
+    return m_compact ? m_compact->jobCount() : 0;
+}
+
+bool Agent::isWaitingSegmentSummaryAtBoundary() const
+{
+    return m_compact && m_compact->waitingAtBoundary();
+}
+
+bool Agent::segmentSummaryStoreEmpty() const
+{
+    return !m_compact || m_compact->storeEmpty();
+}
+
+int Agent::segmentSummaryRecordCount() const
+{
+    return m_compact ? m_compact->recordCount() : 0;
 }
 
 QJsonObject Agent::exportSummaryState() const
 {
-    QJsonObject obj;
-    obj.insert(QStringLiteral("summaryStore"), m_summaryStore.toJson());
-    obj.insert(QStringLiteral("modelView"), m_modelViewStore.toJson());
-    obj.insert(QStringLiteral("lastSummarizedEntryId"), m_lastSummarizedEntryId);
-    obj.insert(QStringLiteral("lastEnqueuedEntryId"), m_lastEnqueuedEntryId);
-    return obj;
+    return m_compact ? m_compact->exportState() : QJsonObject();
 }
 
 void Agent::importSummaryState(const QJsonObject &obj)
 {
-    if (!m_summaryQueue) {
-        clearSummaryState();
-        return;
+    if (m_compact) {
+        m_compact->importState(obj);
     }
-    m_summaryStore.fromJson(obj.value(QStringLiteral("summaryStore")).toObject());
-    m_modelViewStore.fromJson(obj.value(QStringLiteral("modelView")).toObject());
-    m_lastSummarizedEntryId = obj.value(QStringLiteral("lastSummarizedEntryId")).toString();
-    m_lastEnqueuedEntryId = obj.value(QStringLiteral("lastEnqueuedEntryId")).toString();
-    // 从摘要库重建前缀，并挂最近用户醒目块（不信任盘上旧 modelView 快照）
-    syncModelViewPrefixFromStore();
+}
+
+void Agent::probeSegmentSummaryAfterTurnSuccess()
+{
+    if (m_compact) {
+        m_compact->onTurnSucceeded();
+    }
 }
 
 bool Agent::hasFailedSegmentSummaryJobs() const
 {
-    return m_summaryQueue && m_summaryQueue->hasFailed();
-}
-
-void Agent::clearSummaryQueueForBulk()
-{
-    if (m_summaryQueue) {
-        m_summaryQueue->clear();
-    }
-    m_lastEnqueuedEntryId = m_lastSummarizedEntryId;
-}
-
-void Agent::configureAndKickSummaryQueue()
-{
-    if (!m_summaryQueue || !m_loop) {
-        return;
-    }
-    m_summaryQueue->setProviderContext(
-        m_runtime.credentialInstanceId,
-        m_credentialStore,
-        m_providerFactory,
-        m_runtime.modelName,
-        m_loop->provider());
-    m_summaryQueue->setCompactConfig(m_runtime.toCompactConfig());
-    m_summaryQueue->kick();
-}
-
-bool Agent::summaryFeaturesEnabled() const
-{
-    return m_summaryQueue
-        && m_runtime.summaryEnabled && m_runtime.compactEnabled;
-}
-
-QString Agent::segmentSummaryCursor() const
-{
-    return !m_lastEnqueuedEntryId.isEmpty()
-        ? m_lastEnqueuedEntryId
-        : m_lastSummarizedEntryId;
-}
-
-bool Agent::tryContinueWithAssembledView(const qint64 threshold, const bool logWhenOver)
-{
-    if (m_summaryStore.isEmpty() || !m_loop) {
-        return false;
-    }
-    applyAssembledModelView();
-    const qint64 estimated = m_loop->currentContextTokenEstimate();
-    if (estimated <= threshold) {
-        LOGI(LogCat::Agent) << "边界组装成功，继续主模型"
-            << logf("tokens", estimated)
-            << logf("threshold", threshold);
-        m_loop->continueAfterCompaction();
-        return true;
-    }
-    if (logWhenOver) {
-        LOGW(LogCat::Agent) << "组装后仍超阈值，改大压"
-            << logf("tokens", estimated)
-            << logf("threshold", threshold);
-    }
-    return false;
-}
-
-SummaryRecord Agent::makeSummaryRecord(const QString &summaryId,
-                                       QList<QString> spanEntryIds,
-                                       const QString &text,
-                                       const QString &source)
-{
-    SummaryRecord rec;
-    rec.summaryId = summaryId;
-    rec.spanEntryIds = std::move(spanEntryIds);
-    rec.text = text;
-    rec.tokenEstimate = estimateContextTokensForText(text);
-    rec.createdAtMs = QDateTime::currentMSecsSinceEpoch();
-    rec.source = source;
-    return rec;
-}
-
-void Agent::startCompactionEngine(const qint64 targetTokensOverride)
-{
-    m_compactEngine->config = m_runtime.toCompactConfig();
-    if (targetTokensOverride > 0) {
-        m_compactEngine->config.targetTokenCount = targetTokensOverride;
-    }
-    m_compactEngine->start(
-        &m_loop->ledger(),
-        m_runtime.credentialInstanceId,
-        m_credentialStore,
-        m_providerFactory,
-        m_runtime.modelName,
-        m_loop->provider()
-    );
-}
-
-void Agent::onCompactionFinished(const bool success)
-{
-    if (!success) {
-        LOGW(LogCat::Agent) << "压缩未完全成功（降级处理）"
-            << logf("agentId", m_agentId)
-            << logf("manual", m_manualCompaction);
-    }
-
-    // 大压/截断成功：引擎已 markCompacted。D11 仅 leader 写摘要库。
-    if (success) {
-        const QString bulkText = m_compactEngine->lastBulkSummaryText();
-        const QList<QString> bulkIds = m_compactEngine->lastBulkCompactedIds();
-        if (m_summaryQueue && !bulkText.trimmed().isEmpty()) {
-            m_summaryStore.replaceAll(makeSummaryRecord(
-                QUuid::createUuid().toString(QUuid::WithoutBraces),
-                bulkIds,
-                bulkText,
-                QStringLiteral("bulk")));
-            if (!m_summaryStore.lastCoveredEntryId().isEmpty()) {
-                m_lastSummarizedEntryId = m_summaryStore.lastCoveredEntryId();
-                m_lastEnqueuedEntryId = m_lastSummarizedEntryId;
-            }
-            syncModelViewPrefixFromStore();
-            emitContextCompactedNotice(core_ir::CompactReason::Bulk);
-        } else {
-            // 截断降级或子代理：不 wipe 摘要库
-            emitContextCompactedNotice(bulkText.trimmed().isEmpty()
-                                           ? core_ir::CompactReason::Truncate
-                                           : core_ir::CompactReason::Bulk);
-        }
-    }
-
-    const bool manual = m_manualCompaction;
-    m_manualCompaction = false;
-    m_waitingSummaryAtBoundary = false;
-
-    if (manual) {
-        m_loop->endManualCompaction();
-    }
-
-    emit stateChanged();
-    emit dataChanged();
-
-    if (!manual) {
-        m_loop->continueAfterCompaction();
-    }
-}
-
-void Agent::onCompactionFailed(const QString &reason)
-{
-    LOGW(LogCat::Agent) << "压缩失败"
-        << logf("agentId", m_agentId)
-        << logf("reason", reason)
-        << logf("manual", m_manualCompaction);
-}
-
-void Agent::onTurnSucceededForSummary()
-{
-    if (!m_summaryQueue) {
-        return;
-    }
-    maybeEnqueueSegmentSummary();
-    // 主模型成功后 resume 失败/pending 任务（D6）
-    if (m_summaryQueue->hasPendingOrRunning()) {
-        configureAndKickSummaryQueue();
-    }
-}
-
-void Agent::maybeEnqueueSegmentSummary()
-{
-    if (!summaryFeaturesEnabled() || !m_loop) {
-        return;
-    }
-    const qint64 threshold = m_runtime.summarySegmentTokens > 0
-        ? m_runtime.summarySegmentTokens
-        : 180000;
-    const QString afterId = segmentSummaryCursor();
-    const qint64 added = ModelViewAssembler::estimateTokensSince(m_loop->ledger(), afterId);
-    if (added < threshold) {
-        LOGD(LogCat::Agent) << "段摘要未达阈值"
-            << logf("added", added)
-            << logf("threshold", threshold);
-        return;
-    }
-    const QList<ConversationMessage> snapshot =
-        ModelViewAssembler::collectSummarizableSince(m_loop->ledger(), afterId);
-    if (snapshot.isEmpty()) {
-        return;
-    }
-    const QList<QString> spanIds = ModelViewAssembler::entryIdsOf(snapshot);
-    const QString jobId = m_summaryQueue->enqueue(spanIds, snapshot);
-    if (jobId.isEmpty()) {
-        return;
-    }
-    m_lastEnqueuedEntryId = spanIds.last();
-    configureAndKickSummaryQueue();
-    // 入队后累计起点前移：立刻刷新状态栏进度
-    emitAgentStateProtocolEvent();
-}
-
-void Agent::onSummaryJobFinished(const QString &jobId, const bool success,
-                                 const QString &summaryText,
-                                 const QList<QString> &spanEntryIds)
-{
-    LOGI(LogCat::Agent) << "段摘要任务结束"
-        << logf("jobId", jobId)
-        << logf("success", success)
-        << logf("chars", summaryText.size());
-
-    // 未到边界：Failed 任务保留在队列，不启动大压
-    if (!success) {
-        return;
-    }
-
-    m_summaryStore.append(makeSummaryRecord(
-        jobId, spanEntryIds, summaryText, QStringLiteral("segment")));
-    if (!spanEntryIds.isEmpty()) {
-        m_lastSummarizedEntryId = spanEntryIds.last();
-    }
-    syncModelViewPrefixFromStore();
-    // 段摘要写库本身不 mark 账本；仍发可观测通知
-    emitContextCompactedNotice(core_ir::CompactReason::Segment);
-    emitAgentStateProtocolEvent();
-}
-
-void Agent::resumeBoundaryAfterSummaryDrain()
-{
-    if (!m_waitingSummaryAtBoundary) {
-        return;
-    }
-    m_waitingSummaryAtBoundary = false;
-    m_loop->endBoundarySummaryWait(false);
-
-    if (m_summaryQueue && m_summaryQueue->hasFailed()) {
-        LOGW(LogCat::Agent) << "边界摘要有失败，清队大压"
-            << logf("agentId", m_agentId);
-        clearSummaryQueueForBulk();
-        startCompactionEngine();
-        return;
-    }
-
-    if (tryContinueWithAssembledView(m_boundaryThreshold, false)) {
-        return;
-    }
-
-    clearSummaryQueueForBulk();
-    startCompactionEngine();
-}
-
-void Agent::applyAssembledModelView()
-{
-    if (!m_loop) {
-        return;
-    }
-    const int recentTurns = m_runtime.summaryRecentTurns > 0 ? m_runtime.summaryRecentTurns : 5;
-    const ModelViewAssembleResult assembled = ModelViewAssembler::assemble(
-        m_loop->ledger(),
-        m_summaryStore,
-        recentTurns);
-
-    if (!assembled.ok) {
-        LOGW(LogCat::Agent) << "组装模型视图失败"
-            << logf("reason", assembled.failReason);
-        return;
-    }
-
-    // 完整记录保留：仅 mark 被摘要覆盖且不在近尾保护内的条目
-    if (!assembled.entryIdsToCompact.isEmpty()) {
-        m_loop->ledger().markEntriesCompacted(assembled.entryIdsToCompact);
-    }
-
-    // 模型短上下文 = ModelViewStore 前缀（请求时注入）；不写 Kind::Summary 进账本
-    syncModelViewPrefixFromStore();
-    m_loop->refreshContextTokenEstimate();
-    emitContextCompactedNotice(core_ir::CompactReason::Assemble);
-    emit dataChanged();
-}
-
-void Agent::syncModelViewPrefixFromStore()
-{
-    if (!m_summaryQueue) {
-        m_modelViewStore.clear();
-        if (m_loop) {
-            m_loop->clearModelViewPrefix();
-        }
-        return;
-    }
-    m_modelViewStore.syncFromSummaryStore(m_summaryStore);
-
-    // 有摘要前缀时：再挂「最近用户输入」醒目块（对齐任务目标，防大压失忆）
-    QList<QString> prefixes = m_modelViewStore.prefixTexts();
-    if (!prefixes.isEmpty() && m_loop) {
-        const int recentTurns = m_runtime.summaryRecentTurns > 0 ? m_runtime.summaryRecentTurns : 5;
-        const QList<QString> recentUsers =
-            ModelViewAssembler::collectRecentUserTexts(m_loop->ledger(), recentTurns);
-        if (!recentUsers.isEmpty()) {
-            QString block = QStringLiteral(
-                "[最近用户输入 · 请优先对齐这些目标与约束，勿因摘要省略而改问任务]");
-            for (int i = 0; i < recentUsers.size(); ++i) {
-                block += QStringLiteral("\n") + QString::number(i + 1) + QStringLiteral(". ")
-                    + recentUsers.at(i);
-            }
-            prefixes.append(block);
-            m_modelViewStore.setPrefixTexts(prefixes);
-        }
-    }
-
-    if (m_loop) {
-        m_loop->setModelViewPrefixTexts(m_modelViewStore.prefixTexts());
-    }
-}
-
-void Agent::emitContextCompactedNotice(const core_ir::CompactReason reason)
-{
-    core_ir::EventContextCompacted ev;
-    ev.reason = reason;
-    ev.summaryRecordCount = m_summaryStore.recordCount();
-    ev.modelViewPrefixCount = m_modelViewStore.count();
-    ev.summaryTokenEstimate = m_summaryStore.totalTokenEstimate();
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{ev}, {}, {});
-    }
-    LOGI(LogCat::Agent) << "ContextCompacted 可观测"
-        << logf("agentId", m_agentId)
-        << logf("reason", core_ir::compactReasonKey(reason))
-        << logf("records", ev.summaryRecordCount)
-        << logf("prefixes", ev.modelViewPrefixCount)
-        << logf("summaryTokens", ev.summaryTokenEstimate);
+    return m_compact && m_compact->hasFailedJobs();
 }
 
 QString Agent::deriveLatestSummary(const QList<ConversationMessage> &messages)

@@ -10,7 +10,7 @@ struct AgentPromptContext
     QString agentId;
     QString displayName;
     QString parentAgentId;
-    /// 角色模板文件名（如 role_leader.md）。空 = 不拼角色块。由编排填写。
+    /// 角色模板文件名（仅 basename）。空 = 不拼角色块。由编排填写。
     QString rolePromptFile;
     /// 模式覆盖模板文件名（如 plan.md）。空 = 不拼模式块。由模式策略填写。
     QString modePromptFile;

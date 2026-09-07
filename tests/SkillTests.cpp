@@ -10,6 +10,7 @@
 #include "providers/service/ProviderCredential.h"
 #include "skills/FileSkill.h"
 #include "skills/FileSkillLoader.h"
+#include "agent/SkillSubmit.h"
 #include "skills/SkillService.h"
 
 #include <QDir>

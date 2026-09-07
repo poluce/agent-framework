@@ -4,7 +4,7 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-set(AGENT_FRAMEWORK_VERSION "0.5.3")
+set(AGENT_FRAMEWORK_VERSION "0.6.0")
 set(AGENT_FRAMEWORK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 set(AGENT_FW_SRC "${AGENT_FRAMEWORK_ROOT}/src")
 
@@ -79,11 +79,22 @@ target_include_directories(agent_shared PUBLIC
 target_link_libraries(agent_shared PUBLIC Qt6::Core)
 
 # ----------------------------------------------------------
-# agent_runtime
+# agent_runtime 分层静态库：types ← tools ← providers ← skills ← agent
+# agent_runtime 是 INTERFACE，链错层在只链下层时链接失败。
 # ----------------------------------------------------------
-file(GLOB_RECURSE AGENT_RUNTIME_AGENT_SOURCES CONFIGURE_DEPENDS
-    "${AGENT_FW_SRC}/runtime/agent/*.cpp"
-    "${AGENT_FW_SRC}/runtime/agent/*.h")
+function(agent_framework_add_runtime_layer name)
+    cmake_parse_arguments(ARG "PCH" "" "SOURCES;LIBS" ${ARGN})
+    add_library(${name} STATIC ${ARG_SOURCES})
+    agent_framework_lib_impl_defaults(${name} runtime)
+    target_link_libraries(${name} PUBLIC ${ARG_LIBS})
+    if(ARG_PCH AND EXISTS "${AGENT_FRAMEWORK_ROOT}/pch.h")
+        target_precompile_headers(${name} PRIVATE "${AGENT_FRAMEWORK_ROOT}/pch.h")
+    endif()
+endfunction()
+
+file(GLOB_RECURSE AGENT_RUNTIME_TYPES_SOURCES CONFIGURE_DEPENDS
+    "${AGENT_FW_SRC}/runtime/types/*.cpp"
+    "${AGENT_FW_SRC}/runtime/types/*.h")
 file(GLOB_RECURSE AGENT_RUNTIME_TOOLS_SOURCES CONFIGURE_DEPENDS
     "${AGENT_FW_SRC}/runtime/tools/*.cpp"
     "${AGENT_FW_SRC}/runtime/tools/*.h")
@@ -93,28 +104,37 @@ file(GLOB_RECURSE AGENT_RUNTIME_PROVIDERS_SOURCES CONFIGURE_DEPENDS
 file(GLOB_RECURSE AGENT_RUNTIME_SKILLS_SOURCES CONFIGURE_DEPENDS
     "${AGENT_FW_SRC}/runtime/skills/*.cpp"
     "${AGENT_FW_SRC}/runtime/skills/*.h")
-set(AGENT_RUNTIME_SOURCES
-    ${AGENT_RUNTIME_AGENT_SOURCES}
-    ${AGENT_RUNTIME_TOOLS_SOURCES}
-    ${AGENT_RUNTIME_PROVIDERS_SOURCES}
-    ${AGENT_RUNTIME_SKILLS_SOURCES}
-    src/runtime/types/CoreEvent.h
-    src/runtime/types/CoreEventChannel.h
-    src/runtime/types/ConversationMessage.h
-    src/runtime/config/SystemPromptBuilder.cpp
-    src/runtime/config/SystemPromptBuilder.h
-    src/runtime/framework/AgentFramework.h
-)
-add_library(agent_runtime STATIC ${AGENT_RUNTIME_SOURCES})
-agent_framework_lib_impl_defaults(agent_runtime runtime)
-if(EXISTS "${AGENT_FRAMEWORK_ROOT}/pch.h")
-    target_precompile_headers(agent_runtime PRIVATE "${AGENT_FRAMEWORK_ROOT}/pch.h")
-endif()
-target_link_libraries(agent_runtime
-    PUBLIC agent_shared Qt6::Core Qt6::Network Qt6::Concurrent)
-target_sources(agent_runtime PRIVATE
+file(GLOB_RECURSE AGENT_RUNTIME_AGENT_SOURCES CONFIGURE_DEPENDS
+    "${AGENT_FW_SRC}/runtime/agent/*.cpp"
+    "${AGENT_FW_SRC}/runtime/agent/*.h")
+
+agent_framework_add_runtime_layer(agent_types
+    SOURCES ${AGENT_RUNTIME_TYPES_SOURCES}
+    LIBS agent_shared Qt6::Core)
+agent_framework_add_runtime_layer(agent_tools
+    SOURCES ${AGENT_RUNTIME_TOOLS_SOURCES}
+    LIBS agent_types)
+agent_framework_add_runtime_layer(agent_providers
+    PCH
+    SOURCES ${AGENT_RUNTIME_PROVIDERS_SOURCES}
+    LIBS agent_tools Qt6::Network)
+agent_framework_add_runtime_layer(agent_skills
+    SOURCES ${AGENT_RUNTIME_SKILLS_SOURCES}
+    LIBS agent_providers)
+agent_framework_add_runtime_layer(agent_agent
+    PCH
+    SOURCES
+        ${AGENT_RUNTIME_AGENT_SOURCES}
+        src/runtime/config/SystemPromptBuilder.cpp
+        src/runtime/config/SystemPromptBuilder.h
+        src/runtime/framework/AgentFramework.h
+    LIBS agent_skills Qt6::Concurrent)
+target_sources(agent_agent PRIVATE
     "${AGENT_FRAMEWORK_ROOT}/resources/system_prompts.qrc"
     "${AGENT_FRAMEWORK_ROOT}/resources/config.qrc")
+
+add_library(agent_runtime INTERFACE)
+target_link_libraries(agent_runtime INTERFACE agent_agent)
 
 # 伞头 quoted include 闭包；增头须同步本表与 tests/check_framework_install.cmake
 set(AGENT_FRAMEWORK_PUBLIC_HEADERS
@@ -127,14 +147,12 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     agent/AgentTaskManager.h
     agent/OrchestrationRegistry.h
     agent/ProviderRunLedger.h
-    agent/compact/CompactEngine.h
-    agent/compact/ModelViewStore.h
-    agent/compact/SummaryJobQueue.h
-    agent/compact/SummaryStore.h
+    agent/SkillSubmit.h
     config/SystemPromptBuilder.h
     types/CoreEvent.h
     types/CoreEventChannel.h
     types/ConversationMessage.h
+    types/MediaAsset.h
     providers/ProviderTypes/ProviderAdapterTypes.h
     providers/ProviderTypes/ProviderCommon.h
     providers/ProviderTypes/ProviderEvent.h
@@ -151,10 +169,12 @@ set(AGENT_FRAMEWORK_PUBLIC_HEADERS
     skills/FileSkill.h
     skills/FileSkillLoader.h
     skills/SkillService.h
+    tools/AbstractBuiltinTool.h
     tools/AbstractSession.h
     tools/AbstractSessionTool.h
     tools/AbstractToolSource.h
     tools/AbstractUnit.h
+    tools/BuiltinToolRegistry.h
     tools/BuiltinToolRuntime.h
     tools/SessionToolContext.h
     tools/ToolTypes.h
@@ -210,7 +230,15 @@ add_library(AgentFramework::agent_framework ALIAS agent_framework)
 # ----------------------------------------------------------
 set(_agent_framework_cmake_dir "${CMAKE_INSTALL_LIBDIR}/cmake/AgentFramework")
 
-install(TARGETS agent_shared agent_runtime agent_framework
+install(TARGETS
+    agent_shared
+    agent_types
+    agent_tools
+    agent_providers
+    agent_skills
+    agent_agent
+    agent_runtime
+    agent_framework
     EXPORT AgentFrameworkTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT AgentFramework
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT AgentFramework

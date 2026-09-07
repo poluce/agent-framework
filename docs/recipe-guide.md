@@ -73,14 +73,14 @@ session.start();
 | `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 按单元裁剪工具（含 MCP 工具） |
 | `skillVisible(unit, skillName)` | 全可见 | 按单元裁剪技能（skillName = 技能目录名） |
-| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/` |
+| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/`（角色模板由宿主/配方提供） |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
 | `remainsIdleAfterTurn(unit)` | true | Completed 后是否回到 Idle（子单元常为 false） |
 | `createUnit(request)` | 拒绝 | 宿主建单元走这里 |
 | `closeUnit(agentId)` | 拒绝 | 宿主关单元走这里。返回已从表移除的指针，调用方 `deleteLater` |
 
-`UnitCreateRequest` 字段全可选：`displayName` / `parentAgentId` / `workingDirectory` / `modelName` / `approvalMode`。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
+`UnitCreateRequest` 字段全可选：`agentId` / `displayName` / `parentAgentId` / `workingDirectory` / `modelName` / `approvalMode`。`agentId` 非空时按该 id 插入并返回该指针（恢复账本）。插入了别的 id 时，`importLedger` 把账本灌进返回值，不再另插一份。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
 
 ---
 

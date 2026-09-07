@@ -3,10 +3,6 @@
 #include "AbstractLoop.h"
 #include "config/AgentMode.h"
 #include "AgentTaskManager.h"
-#include "agent/compact/CompactEngine.h"
-#include "agent/compact/ModelViewStore.h"
-#include "agent/compact/SummaryJobQueue.h"
-#include "agent/compact/SummaryStore.h"
 #include "config/SessionRuntime.h"
 #include "tools/AbstractUnit.h"
 #include "types/CoreEvent.h"
@@ -40,7 +36,7 @@ struct AgentInboxMessage
     bool inFlight = false;
 };
 
-class AbstractOrchestration;
+class CompactPipeline;
 class ToolCoordinator;
 
 class Agent : public QObject, public AbstractUnit
@@ -152,8 +148,7 @@ public:
     void appendSessionEvent(const QString &text) override;
 
     /**
-     * 手动压缩（Host CompactSession）：绕过 token 门控，共用 CompactEngine。
-     * 压完停 Idle，不自动续轮。G5：先 abort 段摘要并 clear 队列再大压。
+     * 手动压缩：绕过 token 门控。压完停 Idle，不自动续轮。
      * 仍拒：主 Loop Busy、已在手动压、大压引擎真在跑。
      */
     [[nodiscard]] bool requestManualCompaction(qint64 targetTokens = -1);
@@ -161,21 +156,14 @@ public:
     /// ClearConversation / 析构：清摘要队列与库
     void clearSummaryState();
 
-    // ── 段摘要可观测（测试/探针；子代理无队列）──
-    [[nodiscard]] bool hasSegmentSummaryQueue() const { return m_summaryQueue != nullptr; }
+    [[nodiscard]] bool hasSegmentSummaryQueue() const;
     [[nodiscard]] int segmentSummaryJobCount() const;
-    [[nodiscard]] bool isWaitingSegmentSummaryAtBoundary() const
-    {
-        return m_waitingSummaryAtBoundary;
-    }
-    [[nodiscard]] bool segmentSummaryStoreEmpty() const { return m_summaryStore.isEmpty(); }
-    [[nodiscard]] int segmentSummaryRecordCount() const { return m_summaryStore.recordCount(); }
-    [[nodiscard]] const SummaryStore &summaryStore() const { return m_summaryStore; }
-    [[nodiscard]] const ModelViewStore &modelViewStore() const { return m_modelViewStore; }
+    [[nodiscard]] bool isWaitingSegmentSummaryAtBoundary() const;
+    [[nodiscard]] bool segmentSummaryStoreEmpty() const;
+    [[nodiscard]] int segmentSummaryRecordCount() const;
     [[nodiscard]] QJsonObject exportSummaryState() const;
     void importSummaryState(const QJsonObject &obj);
-    /// 与主轮成功收口相同的入队/resume 检查（测试可直调）
-    void probeSegmentSummaryAfterTurnSuccess() { onTurnSucceededForSummary(); }
+    void probeSegmentSummaryAfterTurnSuccess();
     [[nodiscard]] bool hasFailedSegmentSummaryJobs() const;
 
     // ── 运行时 ──
@@ -222,44 +210,13 @@ private:
     bool submitMessageInternal(const QString &message, ConversationMessage::Kind kind, const QString &logLabel);
     void handleLoopStateChanged();
     void handleLoopDataChanged();
-    void onCompactionRequested(qint64 currentTokens, qint64 threshold);
-    void onCompactionFinished(bool success);
-    void onCompactionFailed(const QString &reason);
-    void startCompactionEngine(qint64 targetTokensOverride = -1);
-    void onBoundaryCompactionRequested(qint64 threshold);
-    void onTurnSucceededForSummary();
-    void onSummaryJobFinished(const QString &jobId, bool success, const QString &summaryText,
-                              const QList<QString> &spanEntryIds);
-    void maybeEnqueueSegmentSummary();
-    void applyAssembledModelView();
-    void syncModelViewPrefixFromStore();
-    void emitContextCompactedNotice(core_ir::CompactReason reason);
-    void resumeBoundaryAfterSummaryDrain();
-    void clearSummaryQueueForBulk();
-    void configureAndKickSummaryQueue();
-    void ensureSegmentSummaryPipeline();
-    [[nodiscard]] AbstractOrchestration *orchestration() const;
     [[nodiscard]] bool remainsIdleAfterTurn() const;
-    [[nodiscard]] bool summaryFeaturesEnabled() const;
-    [[nodiscard]] QString segmentSummaryCursor() const;
-    /// 组装模型视图；若占用 ≤ threshold 则 continueAfterCompaction 并返回 true
-    [[nodiscard]] bool tryContinueWithAssembledView(qint64 threshold, bool logWhenOver);
-    static SummaryRecord makeSummaryRecord(const QString &summaryId,
-                                           QList<QString> spanEntryIds,
-                                           const QString &text,
-                                           const QString &source);
     static QString deriveLatestSummary(const QList<ConversationMessage> &messages);
 
     QString m_agentId;
     QString m_displayName;
     QString m_parentAgentId;
-    /// CompactSession 触发：结束后不 continueAfterCompaction
-    bool m_manualCompaction = false;
-    /// 边界上等待摘要队列排空
-    bool m_waitingSummaryAtBoundary = false;
-    qint64 m_boundaryThreshold = 0;
 
-    // Provider 配置（apiKey/baseUrl 由实例管理，Loop 按需解析）
     class ProviderCredential *m_credentialStore = nullptr;
 
     SessionRuntime m_runtime;
@@ -268,17 +225,8 @@ private:
     ProviderFactory m_providerFactory;
     class SystemPromptBuilder *m_promptBuilder = nullptr;
 
-    // 运行时
     std::unique_ptr<AbstractLoop> m_loop;
-    std::unique_ptr<CompactEngine> m_compactEngine;
-    /// 编排 usesSegmentSummary 时安装；无配方则空
-    std::unique_ptr<SummaryJobQueue> m_summaryQueue;
-    SummaryStore m_summaryStore;
-    ModelViewStore m_modelViewStore;
-    /// 已成功写库的末 entry id
-    QString m_lastSummarizedEntryId;
-    /// 已入队尚未写库的末 entry id（防重叠入队）
-    QString m_lastEnqueuedEntryId;
+    std::unique_ptr<CompactPipeline> m_compact;
     // 派生与回退状态
     AgentStatus m_status = AgentStatus::Idle;
     std::unique_ptr<AgentTaskManager> m_taskManager;
@@ -286,6 +234,5 @@ private:
     // 收件箱
     QList<AgentInboxMessage> m_inbox;
 
-    // 内环 Event handlers（Event+Context+SubmissionId）
-    std::vector<core_ir::EventHandler> m_protocolHandlers;
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 };

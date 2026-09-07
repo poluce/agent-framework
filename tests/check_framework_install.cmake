@@ -36,10 +36,12 @@ foreach(_rel IN ITEMS
     agent/AgentModePolicy.h
     agent/OrchestrationRegistry.h
     agent/AbstractLoop.h
+    tools/AbstractBuiltinTool.h
     tools/AbstractSession.h
     tools/AbstractSessionTool.h
     tools/AbstractToolSource.h
     tools/AbstractUnit.h
+    tools/BuiltinToolRegistry.h
     tools/BuiltinToolRuntime.h
     tools/SessionToolContext.h
     tools/ToolTypes.h
@@ -51,8 +53,10 @@ foreach(_rel IN ITEMS
     config/ModelTokenDefaults.h
     config/ProcessSafety.h
     types/ConversationMessage.h
+    types/MediaAsset.h
     types/CoreEvent.h
     types/CoreEventChannel.h
+    agent/SkillSubmit.h
     providers/core/AbstractProvider.h
     providers/service/ProviderCredential.h
     providers/service/ProviderService.h
@@ -72,8 +76,8 @@ if(NOT EXISTS "${_cmake}/AgentFrameworkTargets.cmake")
     message(FATAL_ERROR "missing ${_cmake}/AgentFrameworkTargets.cmake")
 endif()
 file(READ "${_cmake}/AgentFrameworkConfig.cmake" _cfg)
-if(NOT _cfg MATCHES "set\\(AgentFramework_VERSION \"0\\.5\\.3\"\\)")
-    message(FATAL_ERROR "AgentFrameworkConfig.cmake missing version 0.5.3:\n${_cfg}")
+if(NOT _cfg MATCHES "set\\(AgentFramework_VERSION \"0\\.6\\.0\"\\)")
+    message(FATAL_ERROR "AgentFrameworkConfig.cmake missing version 0.6.0:\n${_cfg}")
 endif()
 
 foreach(_rel IN ITEMS
@@ -91,7 +95,12 @@ foreach(_rel IN ITEMS
     providers/transport/HttpSseChannel.h
     tools/builtin/ReadFileTool.h
     tools/session/ConfigTool.h
-    agent/compact/CompactToolPair.h)
+    agent/compact/CompactToolPair.h
+    agent/compact/CompactEngine.h
+    agent/compact/CompactPipeline.h
+    agent/compact/ModelViewStore.h
+    agent/compact/SummaryJobQueue.h
+    agent/compact/SummaryStore.h)
     if(EXISTS "${_inc}/${_rel}")
         message(FATAL_ERROR "product/internal header leaked into framework install: ${_rel}")
     endif()

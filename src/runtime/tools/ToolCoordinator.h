@@ -1,7 +1,9 @@
 #pragma once
 
-#include "ToolTypes.h"
 #include "AbstractSession.h"
+#include "BuiltinToolRegistry.h"
+#include "SessionToolRuntime.h"
+#include "ToolTypes.h"
 #include "config/AgentMode.h"
 #include "logging/LogManager.h"
 
@@ -12,33 +14,12 @@
 
 #include <functional>
 #include <memory>
-
-#include "SessionToolRuntime.h"
+#include <optional>
 
 class AbstractBuiltinTool;
 class AbstractToolSource;
 class AbstractUnit;
 class BuiltinToolRuntime;
-
-// ====================================================================
-// BuiltinToolRegistry — 内置工具目录
-// ====================================================================
-class BuiltinToolRegistry
-{
-public:
-    BuiltinToolRegistry();
-
-    QList<ToolSpec> specs() const;
-    ToolSpec specForName(const QString &toolName) const;
-    ToolPermissionDecision evaluatePermission(const QString &toolName,
-                                              ToolScope toolScope,
-                                              ApprovalMode approvalMode) const;
-
-    [[nodiscard]] std::shared_ptr<AbstractBuiltinTool> builtinTool(const QString &toolName) const;
-
-private:
-    QHash<QString, std::shared_ptr<AbstractBuiltinTool>> m_builtinTools;
-};
 
 // ====================================================================
 // ToolCoordinator — 工具源表：内置 / 会话 / 外部（先登记的赢）
@@ -52,6 +33,7 @@ public:
 
     explicit ToolCoordinator(AbstractSession *session,
                              AbstractToolSource *externalSource = nullptr,
+                             std::optional<QList<std::shared_ptr<AbstractBuiltinTool>>> builtinTools = std::nullopt,
                              QObject *parent = nullptr);
     ~ToolCoordinator() override;
 

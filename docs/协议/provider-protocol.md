@@ -433,6 +433,8 @@ ProviderMessagePart
 └── Video    → ProviderVideoAsset { uri | data | blobRef, mimeType, startMs/endMs/fps }
 ```
 
+`ProviderImageAsset` / `ProviderAudioAsset` / `ProviderVideoAsset` / `ProviderBlobRef` / `ProviderUriScheme` 定义在 `types/MediaAsset.h`（账本与协议共用）。`ProviderCommon.h` include 该头。
+
 `FunctionCallOutput` / `ServerToolResult` 还可带 `outputParts[]`（工具结果里的图/文部件）。
 
 #### 资产承载优先级（引用语义）

@@ -13,10 +13,14 @@
  * 所有内置工具（文件系统/进程操作）继承此基类。
  * 子类必须实现 spec()，可选覆盖 isHeavyweight()/writeTargetPathForInput()/execute()。
  */
+class FileSkillLoader;
+
 class AbstractBuiltinTool
 {
 public:
     virtual ~AbstractBuiltinTool() = default;
+
+    virtual void attachSkillLoader(FileSkillLoader *loader) { Q_UNUSED(loader); }
 
     [[nodiscard]] virtual ToolSpec spec() const = 0;
 

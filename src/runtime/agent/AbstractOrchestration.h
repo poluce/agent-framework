@@ -11,6 +11,8 @@ class AgentSession;
 /// Host / 组合根创建单元时的请求。字段全可选；配方自己解释。
 struct UnitCreateRequest
 {
+    /// 恢复/导入时指定已有 id；空 = 配方自行分配。
+    QString agentId;
     QString displayName;
     QString parentAgentId;
     QString workingDirectory;
@@ -109,6 +111,8 @@ public:
 
     /// Host / 组合根创建单元。默认拒绝。
     /// `parentAgentId` 只是可选元数据，口本身不规定必须成树。
+    /// 非空 agentId 时应按该 id 插入并返回该指针（importLedger 恢复账本）。
+    /// 若插入了别的 id，importLedger 把账本灌进返回值，不再另插一份。
     virtual Agent *createUnit(const UnitCreateRequest &request)
     {
         Q_UNUSED(request);

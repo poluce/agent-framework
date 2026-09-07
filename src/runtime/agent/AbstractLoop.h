@@ -21,7 +21,6 @@
 #include <QTimer>
 
 #include <functional>
-#include <map>
 #include <memory>
 
 class AbstractProvider;
@@ -162,6 +161,9 @@ public:
 
     /** 同会话其他 Agent 写入了工作区文件 → 本 Agent 读缓存失效（写前需重读）。 */
     void notifyFileWrittenByOther(const QString &absPath);
+
+    BuiltinToolRuntime &builtinRuntime() { return m_builtinRuntime; }
+    [[nodiscard]] const BuiltinToolRuntime &builtinRuntime() const { return m_builtinRuntime; }
 
     QString sessionUuid() const { return m_sessionUuid; }
     void setSessionUuid(const QString &uuid);
@@ -408,7 +410,5 @@ private:
     QString m_currentPolicyWorkspace;
     QHash<QString, ToolCall> m_activeToolCallsById;
 
-    // 内环 Event handlers（Event+Context+SubmissionId）
-    std::map<core_ir::HandlerId, core_ir::EventHandler> m_protocolHandlers;
-    core_ir::HandlerId m_nextHandlerId = reinterpret_cast<core_ir::HandlerId>(1);
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 };

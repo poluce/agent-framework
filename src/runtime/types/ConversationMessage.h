@@ -1,6 +1,6 @@
 #pragma once
 
-#include "providers/ProviderTypes/ProviderCommon.h"
+#include "MediaAsset.h"
 #include "tools/ToolTypes.h"
 
 #include <QString>

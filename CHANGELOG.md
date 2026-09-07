@@ -2,6 +2,40 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+## [0.6.0] - 2026-09-07
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `types/CoreEvent.h` 只保留执行单元运行时发出的事件。删除产品壳 IR：
+  - MCP：`McpServerState` / `McpServerStatus` / `EventMcpServersChanged`
+  - 团队：`TeamMemberChange` / `EventTeamMemberStatusChanged`
+  - 快照信封：`ApplicationEvent` / `ApplicationEventMessage` / `makeApplicationEvent` / `visitEvent`
+  - 快照载荷：`AgentSnapshot` / `SessionSnapshot` / `EventApplicationSnapshot` / `EventSessionSnapshot` / `EventConversationSnapshot` / `EventRuntimeConfigSnapshot` / `EventGlobalConfigSnapshot` / `ProviderInstanceSnapshot` / `EventProviderInstancesSnapshot` / `EventSkillDirectoriesChanged` / `SkillCommand` / `EventSkillCommandsChanged` / `EventSystemPromptSnapshot` / `EventModelCatalogEntry` / `EventModelCatalogChanged`
+  - 宿主须在产品侧自持这些类型后再投影；内核 0.5 头里继续留着会把产品壳冻进 ABI。对应产品仓 poluce/agent#25。
+- 自动改名不再内置中文 LLM 调用。注入 `AgentSessionConfig.titleGenerator`；未注入则截取用户消息。不再硬编码标题「新会话」，改认空标题或 `untitledTitle`。
+- 内核 qrc 移除 `role_leader.md` / `role_member.md`。角色模板由宿主放到 `system_prompts/` 或自有 qrc。
+- `AgentSession::fromAgent` 删除。
+- 安装包不再公开 `agent/compact/*`（`CompactEngine` / `SummaryJobQueue` / `SummaryStore` / `ModelViewStore`）。`Agent::summaryStore()` / `modelViewStore()` 删除。
+- `SkillService::submitWithSkill` 迁到 `agent/SkillSubmit.h`（`skills/` 不再依赖 `Agent*`）。
+- `ProviderImageAsset` / `ProviderBlobRef` / `ProviderUriScheme` 迁到 `types/MediaAsset.h`。`ConversationMessage` 不再 include `providers/`。
+- `AgentSession::applyRuntimeToPrimary` 更名为 `applyRuntimeToUnits`。
+- `ProviderAudioAsset` / `ProviderVideoAsset` 迁到 `types/MediaAsset.h`。
+- `AgentSessionConfig.builtinTools`：nullopt 与空表都是无内置工具。编码工具集须显式传入 `BuiltinToolRegistry::defaultTools()`。
+
+### 🟡 功能修改
+
+- `AbstractSession` 补上 Loop/Agent 原先向下转型去拿的能力：写协调器、是否主单元、角色/技能/段摘要/回合后 Idle、`notifyFileWritten`。`AbstractLoop` / `Agent` 不再 `static_cast<AgentSession*>`。
+- 会话 `commitRuntime` 把活配置同步到全部单元（不再只打 primary）。
+- `importLedger` 缺单元时先走 `createUnit`（带原 `agentId`）。找不到该 id 则用返回的单元；仍没有再 `insertUnit`。
+- Agent / Session / Loop / CompactEngine 共用 `core_ir::EventHandlerRegistry` 增删 handler。
+- 写工具成功后调用 `notifyFileWritten`，同会话其他单元读缓存失效。
+- 工具可见性拒绝文案改为「该单元不可见此工具。」
+- 压缩策略（等队列 / 拼视图 / 开大压）从 `Agent` 迁到 `compact/CompactPipeline`。`Agent` 只转接 Loop 请求。
+- `agent_runtime` 改为 INTERFACE，实现拆成 `agent_types` ← `agent_tools` ← `agent_providers` ← `agent_skills` ← `agent_agent`。配方仍链 `agent_framework`。
+- 公开 `tools/BuiltinToolRegistry.h` / `tools/AbstractBuiltinTool.h`。
+
 ## [0.5.3] - 2026-09-05
 
 ### 🟢 新增功能
