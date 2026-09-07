@@ -117,7 +117,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 对非主单元隐藏 spawn/config/mcp 等 |
 | `skillVisible(unit, skillName)` | 全可见 | 按单元裁剪 `<available_skills>` 块（skillName = 技能目录名）；内核按单元组装 |
-| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role_leader.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/` |
+| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/`（角色模板由宿主/配方提供） |
 | 模式文案 | 策略填 `AgentPromptContext.modePromptFile` | 只返回 basename。内核 `SystemPromptBuilder` 不认 `AgentMode` |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
@@ -125,7 +125,7 @@ target_link_libraries(my_orch PRIVATE AgentFramework::agent_framework)
 | `createUnit(request)` | 拒绝 | 宿主建单元走这里。`parentAgentId` 只是可选元数据 |
 | `closeUnit(agentId)` | 拒绝 | 宿主关单元走这里。返回已从表移除的指针，调用方 `deleteLater` |
 
-`UnitCreateRequest` 字段全可选：`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
+`UnitCreateRequest` 字段全可选：`agentId`、`displayName`、`parentAgentId`、`workingDirectory`、`modelName`、`approvalMode`。`agentId` 非空时配方应尽量按该 id 插入（恢复账本）。配方自己解释空 parent：建对等单元、建到主单元下、或直接拒绝。
 
 ### 4.3 工具
 

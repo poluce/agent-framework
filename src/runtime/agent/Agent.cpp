@@ -1,7 +1,6 @@
 #include "Agent.h"
-#include "agent/AbstractOrchestration.h"
-#include "agent/AgentSession.h"
 #include "agent/compact/ModelViewAssembler.h"
+#include "tools/AbstractSession.h"
 #include "config/SystemPromptBuilder.h"
 #include "tools/ToolCoordinator.h"
 #include "providers/service/ProviderService.h"
@@ -51,8 +50,7 @@ Agent::Agent(const QString &agentId,
         auto emitToHandlers = [this](const core_ir::Event &out,
                                      const core_ir::EventContext &ctx,
                                      const core_ir::SubmissionId &sid) {
-            for (auto &handler : m_protocolHandlers)
-                handler(out, ctx, sid);
+            m_protocolHandlers.dispatch(out, ctx, sid);
         };
 
         if (const auto *state = std::get_if<core_ir::EventAgentStateChanged>(&event); state) {
@@ -81,8 +79,7 @@ Agent::Agent(const QString &agentId,
     m_compactEngine->addProtocolHandler([this](const core_ir::Event &event,
                                                const core_ir::EventContext &context,
                                                const core_ir::SubmissionId &submissionId) {
-        for (auto &handler : m_protocolHandlers)
-            handler(event, context, submissionId);
+        m_protocolHandlers.dispatch(event, context, submissionId);
     });
 
     LOGD(LogCat::Agent) << "创建 Agent"
@@ -94,9 +91,7 @@ Agent::~Agent()
 {
     clearSummaryState();
     clearInbox(QStringLiteral("agent_destroyed"));
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{core_ir::EventShutdownComplete{}}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{core_ir::EventShutdownComplete{}});
 }
 
 // ── 标识 ──
@@ -173,22 +168,13 @@ void Agent::setCoordinator(ToolCoordinator *coordinator)
     ensureSegmentSummaryPipeline();
 }
 
-AbstractOrchestration *Agent::orchestration() const
-{
-    if (!m_coordinator) {
-        return nullptr;
-    }
-    auto *session = static_cast<AgentSession *>(m_coordinator->session());
-    return session ? session->orchestration() : nullptr;
-}
-
 void Agent::ensureSegmentSummaryPipeline()
 {
     if (m_summaryQueue) {
         return;
     }
-    AbstractOrchestration *orch = orchestration();
-    if (!orch || !orch->usesSegmentSummary(this)) {
+    AbstractSession *session = m_coordinator ? m_coordinator->session() : nullptr;
+    if (!session || !session->usesSegmentSummary(m_agentId)) {
         return;
     }
     m_summaryQueue = std::make_unique<SummaryJobQueue>(this);
@@ -201,11 +187,11 @@ void Agent::ensureSegmentSummaryPipeline()
 
 bool Agent::remainsIdleAfterTurn() const
 {
-    AbstractOrchestration *orch = orchestration();
-    if (!orch) {
+    AbstractSession *session = m_coordinator ? m_coordinator->session() : nullptr;
+    if (!session) {
         return true;
     }
-    return orch->remainsIdleAfterTurn(this);
+    return session->remainsIdleAfterTurn(m_agentId);
 }
 
 void Agent::setProviderFactory(ProviderFactory factory)
@@ -362,9 +348,7 @@ void Agent::emitAgentStateProtocolEvent()
         pendingNextTurnPreviews(),
         segmentSummaryAddedTokens()
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxEnqueued(const AgentInboxMessage &msg)
@@ -372,9 +356,7 @@ void Agent::emitInboxEnqueued(const AgentInboxMessage &msg)
     const core_ir::EventInboxMessageEnqueued payload{
         msg.id, msg.fromAgentId, m_agentId, msg.priority
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxDelivered(const AgentInboxMessage &msg)
@@ -382,9 +364,7 @@ void Agent::emitInboxDelivered(const AgentInboxMessage &msg)
     const core_ir::EventInboxMessageDelivered payload{
         msg.id, msg.fromAgentId, m_agentId
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason)
@@ -392,9 +372,7 @@ void Agent::emitInboxDropped(const AgentInboxMessage &msg, const QString &reason
     const core_ir::EventInboxMessageDropped payload{
         msg.id, msg.fromAgentId, m_agentId, reason
     };
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{payload}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{payload});
 }
 
 // ── 操作 ──
@@ -569,9 +547,7 @@ void Agent::appendSessionEvent(const QString &text)
     emit dataChanged();
 
     // ProtocolEvent
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{core_ir::EventSessionEvent{m_agentId, text.trimmed()}}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{core_ir::EventSessionEvent{m_agentId, text.trimmed()}});
 }
 
 void Agent::submitUserMessageWithSkill(const QString &message,
@@ -732,15 +708,12 @@ QList<ConversationMessage> Agent::ledgerMessages() const
 
 core_ir::HandlerId Agent::addEventHandler(core_ir::EventHandler handler)
 {
-    m_protocolHandlers.push_back(std::move(handler));
-    return reinterpret_cast<core_ir::HandlerId>(m_protocolHandlers.size());
+    return m_protocolHandlers.add(std::move(handler));
 }
 
 void Agent::removeEventHandler(core_ir::HandlerId id)
 {
-    Q_UNUSED(id);
-    // 本对象只挂会话转发这一个 handler；remove 即清空。
-    m_protocolHandlers.clear();
+    m_protocolHandlers.remove(id);
 }
 
 // ── 内部 ──
@@ -1206,9 +1179,7 @@ void Agent::emitContextCompactedNotice(const core_ir::CompactReason reason)
     ev.summaryRecordCount = m_summaryStore.recordCount();
     ev.modelViewPrefixCount = m_modelViewStore.count();
     ev.summaryTokenEstimate = m_summaryStore.totalTokenEstimate();
-    for (auto &handler : m_protocolHandlers) {
-        handler(core_ir::Event{ev}, {}, {});
-    }
+    m_protocolHandlers.dispatch(core_ir::Event{ev});
     LOGI(LogCat::Agent) << "ContextCompacted 可观测"
         << logf("agentId", m_agentId)
         << logf("reason", core_ir::compactReasonKey(reason))

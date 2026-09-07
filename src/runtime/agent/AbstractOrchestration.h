@@ -11,6 +11,8 @@ class AgentSession;
 /// Host / 组合根创建单元时的请求。字段全可选；配方自己解释。
 struct UnitCreateRequest
 {
+    /// 恢复/导入时指定已有 id；空 = 配方自行分配。
+    QString agentId;
     QString displayName;
     QString parentAgentId;
     QString workingDirectory;

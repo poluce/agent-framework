@@ -24,12 +24,8 @@ struct ToolResult;
 class AbstractToolSource;
 class ToolCoordinator;
 class WriteCoordinator;
-class AbstractProvider;
 class FileSkillLoader;
 class SystemPromptBuilder;
-struct ProviderAuth;
-struct ProviderRequest;
-struct ProviderEvent;
 
 /// 创建 AgentSession 时一次性的不可变配置
 struct AgentSessionConfig
@@ -46,8 +42,14 @@ struct AgentSessionConfig
     SystemPromptBuilder *promptBuilder = nullptr;
     /// 模式策略工厂；空 = 不拦截工具，提示词走 promptBuilder / 内置回落。
     AbstractLoop::ModePolicyFactory modePolicyFactory;
-    /// 编排实现；非拥有。空 = 无 spawn/team、createUnit 不可用（主会话由组合根注入）。
+    /// 编排实现；非拥有。空 = createUnit 不可用（主会话由组合根注入）。
     AbstractOrchestration *orchestration = nullptr;
+    /// 空标题（或与此字符串相等）时允许自动改名。空 = 只认空标题。
+    QString untitledTitle;
+    /// 注入的标题生成器；空则截取用户消息前几字。done 可异步调用。
+    using TitleReady = std::function<void(const QString &title)>;
+    using TitleGenerator = std::function<void(const QString &userText, TitleReady done)>;
+    TitleGenerator titleGenerator;
 };
 
 /// 执行单元表：登记 / 查找 / 喂任务。编排是可选配方，不是会话身份。
@@ -77,27 +79,32 @@ public:
     }
     QString userCustomPrompt() const override;
     void setUserCustomPrompt(const QString &text) override;
-    static AgentSession *fromAgent(Agent *agent)
-    {
-        return agent ? qobject_cast<AgentSession *>(agent->parent()) : nullptr;
-    }
+    WriteCoordinator *writeCoordinator() const override { return m_writeCoordinator.get(); }
+    bool isPrimaryUnit(const QString &agentId) const override;
+    bool hasOrchestration() const override { return m_config.orchestration != nullptr; }
+    QString rolePromptFile(const QString &agentId) const override;
+    bool skillVisible(const QString &agentId, const QString &skillName) const override;
+    bool usesSegmentSummary(const QString &agentId) const override;
+    bool remainsIdleAfterTurn(const QString &agentId) const override;
+    void notifyFileWritten(const QString &writerAgentId, const QString &absPath) override;
     void setToolResultStoreDir(const QString &dir);
     void setModelResponseTimeoutSecs(int timeoutSecs);
     void setMaxRetries(int retries);
 
     /// 会话唯一活运行时配置（非 Agent 执行副本）。
     const SessionRuntime &runtime() const override;
-    /// 整表替换并规范化；变更字段逐条 EventConfigChanged，再同步主单元（若有）。
+    /// 整表替换并规范化；变更字段逐条 EventConfigChanged，再同步全部单元。
     void setRuntime(const SessionRuntime &runtime);
     /// 单字段更新（规范化）；返回是否实际变更。
     bool setRuntimeField(const QString &key, const QVariant &value) override;
     /**
-     * 批量更新 runtime 字段（Host SetSessionConfig.patch）。
+     * 批量更新 runtime 字段。
      * 全有或全无：任一键写失败则不改 m_runtime；成功时变更字段逐条 EventConfigChanged，
-     * 且只同步一次主单元 / 发一次 runtimeChanged。
+     * 且只同步一次全部单元 / 发一次 runtimeChanged。
      * 幂等无变化仍返回 true。
      */
     bool setRuntimeFields(const QJsonObject &patch);
+    /// 把会话活 runtime 写到全部已登记单元。
     void applyRuntimeToPrimary();
     QString workingDirectory() const;
     void setSessionWorkingDirectory(const QString &workingDirectory) override;
@@ -107,7 +114,7 @@ public:
     void setSessionId(const QString &id);
     QString title() const;
     void setTitle(const QString &title);
-    /** fork 源会话 id（空 = 普通/根会话）。供 TUI 分支面板构建 fork 树。 */
+    /** fork 源会话 id（空 = 普通/根会话）。 */
     QString forkedFromSessionId() const;
     void setForkedFromSessionId(const QString &sourceSessionId);
 
@@ -138,7 +145,6 @@ public:
      * 主单元优先插入（键 isPrimary）；无标记则数组第一项。
      * runtime 恢复 + ledger fromJson。与 /resume 恢复语义一致。
      * @param workingDirectoryOverride 非空时覆盖各 agent 的 workingDirectory
-     *        （TUI FromLaunchCwd 锁定启动 cwd，不从 history 恢复）
      */
     void importLedger(const QJsonObject &json,
                       const QString &workingDirectoryOverride = {});
@@ -148,9 +154,6 @@ public:
     void clear();
     /// 清空单元表后通知编排 `onSessionStarted()`。无编排则保持空表。
     void start();
-
-    // ── 写协调（per-file 互斥，跨 Agent 共享） ──
-    WriteCoordinator *writeCoordinator() const { return m_writeCoordinator.get(); }
 
     // ── ID 分配 ──
     QString allocateAgentId();
@@ -166,13 +169,12 @@ public:
     // ── 内环事件 fan-out（Core 私有；非跨层契约）──
     core_ir::HandlerId addEventHandler(core_ir::EventHandler handler);
     void removeEventHandler(core_ir::HandlerId id);
-    /// 供编排把配方内事件并入会话 fan-out（如团队看门狗）。
+    /// 供编排把配方内事件并入会话 fan-out。
     void fanOutEvent(const core_ir::Event &event,
                      const core_ir::EventContext &context = {},
                      const core_ir::SubmissionId &submissionId = {}) const;
 
 signals:
-    // 下列信号仅供 Core 进程内（CoreApplicationService）协调；客户端只吃 HostEvent。
     void agentAdded(const QString &agentId);
     void agentRemoved(const QString &agentId);
     void titleChanged(const QString &newTitle);
@@ -187,11 +189,6 @@ private:
     void triggerAutoRenameIfNeeded(Agent *agent);
     void fallbackRename(Agent *agent);
     bool isEligibleForRename(Agent *agent, QString &firstUserText) const;
-    bool getProviderAuth(ProviderAuth &auth, QString &providerType) const;
-    ProviderRequest buildRenameRequest(const QString &firstUserText) const;
-    void handleRenameEvent(const ProviderEvent &event, AbstractProvider *provider,
-                           const QMetaObject::Connection &connection,
-                           const std::shared_ptr<QString> &summaryText);
     [[nodiscard]] QString sessionBlobRoot() const;
     void applyBlobRootToAgents();
 
@@ -210,12 +207,11 @@ private:
     std::unique_ptr<WriteCoordinator> m_writeCoordinator;
 
     void pushEvent(const core_ir::Event &event) const;
-    /// 把已规范化的 next 提交为 m_runtime（对比 toJson → 事件 → 主单元）。
+    /// 把已规范化的 next 提交为 m_runtime（对比 toJson → 事件 → 全部单元）。
     /// @return 是否实际写入（before==after 时 false）
     bool commitRuntime(const SessionRuntime &next);
 
-    // 内环 Event handlers
-    std::vector<core_ir::EventHandler> m_protocolHandlers;
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 
     QHash<QString, Agent *> m_agents;
     QStringList m_order;

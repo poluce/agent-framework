@@ -40,7 +40,6 @@ struct AgentInboxMessage
     bool inFlight = false;
 };
 
-class AbstractOrchestration;
 class ToolCoordinator;
 
 class Agent : public QObject, public AbstractUnit
@@ -238,7 +237,6 @@ private:
     void clearSummaryQueueForBulk();
     void configureAndKickSummaryQueue();
     void ensureSegmentSummaryPipeline();
-    [[nodiscard]] AbstractOrchestration *orchestration() const;
     [[nodiscard]] bool remainsIdleAfterTurn() const;
     [[nodiscard]] bool summaryFeaturesEnabled() const;
     [[nodiscard]] QString segmentSummaryCursor() const;
@@ -286,6 +284,5 @@ private:
     // 收件箱
     QList<AgentInboxMessage> m_inbox;
 
-    // 内环 Event handlers（Event+Context+SubmissionId）
-    std::vector<core_ir::EventHandler> m_protocolHandlers;
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 };

@@ -1,8 +1,6 @@
 #include "AbstractLoop.h"
 #include "tools/ToolCoordinator.h"
-#include "agent/AbstractOrchestration.h"
-#include "agent/Agent.h"
-#include "agent/AgentSession.h" // writeCoordinator() 需要完整类型
+#include "tools/AbstractSession.h"
 #include "skills/FileSkillLoader.h"
 #include "tools/builtin/AskQuestionTool.h"
 #include "tools/builtin/helpers/WorkspaceHelper.h" // normalizedPath（跨 Agent 广播 key 归一）
@@ -214,23 +212,17 @@ void AbstractLoop::emitProtocolEvent(core_ir::Event event,
     if (m_protocolHandlers.empty()) {
         return;
     }
-    const core_ir::EventContext context{};
-    for (auto &pair : m_protocolHandlers) {
-        pair.second(event, context, submissionId);
-    }
+    m_protocolHandlers.dispatch(event, {}, submissionId);
 }
 
 core_ir::HandlerId AbstractLoop::addEventHandler(core_ir::EventHandler handler)
 {
-    const core_ir::HandlerId id = m_nextHandlerId;
-    m_nextHandlerId = reinterpret_cast<core_ir::HandlerId>(reinterpret_cast<std::uintptr_t>(m_nextHandlerId) + 1);
-    m_protocolHandlers[id] = std::move(handler);
-    return id;
+    return m_protocolHandlers.add(std::move(handler));
 }
 
 void AbstractLoop::removeEventHandler(core_ir::HandlerId id)
 {
-    m_protocolHandlers.erase(id);
+    m_protocolHandlers.remove(id);
 }
 
 // ── 配置 ──
@@ -251,9 +243,8 @@ void AbstractLoop::setCoordinator(ToolCoordinator *coordinator)
     }
     m_coordinator = coordinator;
     if (coordinator) {
-        auto *session = static_cast<AgentSession *>(coordinator->session());
+        AbstractSession *session = coordinator->session();
         m_builtinRuntime.setSession(session);
-        // 会话级写协调器：per-file 互斥跨 Agent 共享（nullptr 安全）
         m_builtinRuntime.setWriteCoordinator(session ? session->writeCoordinator() : nullptr);
         connect(coordinator, &ToolCoordinator::toolsUpdated, this, &AbstractLoop::rebuildProviderToolSpecsCache);
     }
@@ -265,9 +256,9 @@ void AbstractLoop::setCoordinator(ToolCoordinator *coordinator)
 void AbstractLoop::refreshAgentType()
 {
     if (m_coordinator) {
-        if (auto *session = static_cast<AgentSession *>(m_coordinator->session())) {
-            if (Agent *unit = session->findById(m_agentId)) {
-                m_agentType = session->isPrimary(unit)
+        if (AbstractSession *session = m_coordinator->session()) {
+            if (session->findUnit(m_agentId)) {
+                m_agentType = session->isPrimaryUnit(m_agentId)
                     ? QStringLiteral("main")
                     : QStringLiteral("sub");
                 return;
@@ -383,10 +374,8 @@ AgentPromptContext AbstractLoop::buildPromptContext(const SessionRuntime &config
     ctx.workspacePath = config.workingDirectory;
     ctx.defaultShell = config.defaultShell;
     if (m_coordinator) {
-        if (auto *session = static_cast<AgentSession *>(m_coordinator->session())) {
-            if (AbstractOrchestration *orch = session->orchestration()) {
-                ctx.rolePromptFile = orch->rolePromptFile(session->findById(m_agentId));
-            }
+        if (AbstractSession *session = m_coordinator->session()) {
+            ctx.rolePromptFile = session->rolePromptFile(m_agentId);
         }
     }
     return ctx;
@@ -444,16 +433,13 @@ std::optional<QString> AbstractLoop::assembleSkillsBlockForUnit() const
     if (!loader) {
         return std::nullopt;
     }
-    auto *agentSession = static_cast<AgentSession *>(session);
-    AbstractOrchestration *orch = agentSession ? agentSession->orchestration() : nullptr;
-    if (!orch) {
+    if (!session->hasOrchestration()) {
         return std::nullopt; // 无编排：保留宿主注入的技能块
     }
 
     QList<FileSkill> visible;
     for (const FileSkill &skill : loader->userInvocableSkills()) {
-        if (orch->skillVisible(static_cast<Agent *>(session->findUnit(m_agentId)),
-                               skill.dirName)) {
+        if (session->skillVisible(m_agentId, skill.dirName)) {
             visible.append(skill);
         }
     }
@@ -1658,10 +1644,16 @@ bool AbstractLoop::completeToolResult(const ToolResult &result, const bool advan
             }
             // 广播 key 统一 normalizedPath（小写 + 正斜杠）：
             // 否则跨 Agent 失效广播的 key 与缓存 key 不匹配，删除静默失败
+            const QString normalized = WorkspaceHelper::normalizedPath(absPath);
             emitProtocolEvent(core_ir::EventFileTouched{
-                WorkspaceHelper::normalizedPath(absPath),
+                normalized,
                 result.toolName,
                 QDateTime::currentMSecsSinceEpoch()});
+            if (m_coordinator) {
+                if (AbstractSession *session = m_coordinator->session()) {
+                    session->notifyFileWritten(m_agentId, normalized);
+                }
+            }
         }
     }
 

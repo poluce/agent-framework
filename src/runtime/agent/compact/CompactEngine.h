@@ -12,7 +12,6 @@
 
 #include <memory>
 #include <functional>
-#include <vector>
 
 class AbstractProvider;
 class ProviderCredential;
@@ -78,12 +77,10 @@ public:
     [[nodiscard]] QString lastBulkSummaryText() const { return m_lastBulkSummaryText; }
     [[nodiscard]] QList<QString> lastBulkCompactedIds() const { return m_lastBulkCompactedIds; }
 
-    // ── 内环 Event fan-out ──
     using EventHandler = core_ir::EventHandler;
-    void addProtocolHandler(EventHandler h) { m_protocolHandlers.push_back(std::move(h)); }
+    void addProtocolHandler(EventHandler h) { m_protocolHandlers.add(std::move(h)); }
     void pushEvent(const core_ir::Event &event) {
-        for (auto &h : m_protocolHandlers)
-            h(event, {}, {});
+        m_protocolHandlers.dispatch(event);
     }
 
 signals:
@@ -136,5 +133,5 @@ private:
     bool m_summaryOnly = false;
     QMetaObject::Connection m_providerConnection;
     QTimer m_retryTimer;
-    std::vector<EventHandler> m_protocolHandlers;
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 };

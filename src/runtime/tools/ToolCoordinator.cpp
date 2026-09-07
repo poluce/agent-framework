@@ -370,7 +370,7 @@ void ToolCoordinator::dispatch(const QString &agentId, const ToolCall &call,
             tr.success = false;
             tr.isError = true;
             tr.category = ToolResultCategory::Error;
-            tr.text = QStringLiteral("只有主 agent 可以使用此工具。");
+            tr.text = QStringLiteral("该单元不可见此工具。");
             completion(tr);
             return;
         }

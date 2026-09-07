@@ -8,7 +8,6 @@
 #include "tools/AbstractToolSource.h"
 #include "tools/ToolCoordinator.h"
 #include "tools/WriteCoordinator.h"
-#include "providers/core/AbstractProvider.h"
 #include "providers/service/ProviderCredential.h"
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -129,11 +128,56 @@ bool AgentSession::commitRuntime(const SessionRuntime &next)
 
 void AgentSession::applyRuntimeToPrimary()
 {
-    Agent *primary = primaryUnit();
-    if (!primary)
-        return;
+    for (Agent *agent : std::as_const(m_agents)) {
+        if (agent) {
+            agent->applySessionSettings(m_runtime);
+        }
+    }
+}
 
-    primary->applySessionSettings(m_runtime);
+bool AgentSession::isPrimaryUnit(const QString &agentId) const
+{
+    return isPrimary(findById(agentId));
+}
+
+QString AgentSession::rolePromptFile(const QString &agentId) const
+{
+    if (!m_config.orchestration) {
+        return {};
+    }
+    return m_config.orchestration->rolePromptFile(findById(agentId));
+}
+
+bool AgentSession::skillVisible(const QString &agentId, const QString &skillName) const
+{
+    if (!m_config.orchestration) {
+        return true;
+    }
+    return m_config.orchestration->skillVisible(findById(agentId), skillName);
+}
+
+bool AgentSession::usesSegmentSummary(const QString &agentId) const
+{
+    return m_config.orchestration
+        && m_config.orchestration->usesSegmentSummary(findById(agentId));
+}
+
+bool AgentSession::remainsIdleAfterTurn(const QString &agentId) const
+{
+    if (!m_config.orchestration) {
+        return true;
+    }
+    return m_config.orchestration->remainsIdleAfterTurn(findById(agentId));
+}
+
+void AgentSession::notifyFileWritten(const QString &writerAgentId, const QString &absPath)
+{
+    for (Agent *agent : std::as_const(m_agents)) {
+        if (!agent || agent->agentId() == writerAgentId || !agent->loop()) {
+            continue;
+        }
+        agent->loop()->notifyFileWrittenByOther(absPath);
+    }
 }
 
 ToolCoordinator *AgentSession::coordinator() const
@@ -419,11 +463,23 @@ void AgentSession::importLedger(const QJsonObject &json,
         const Row &row = rows.at(idx);
         Agent *agent = findById(row.id);
         if (!agent) {
-            agent = insertUnit(row.id, row.displayName.isEmpty() ? row.id : row.displayName);
+            const QString displayName = row.displayName.isEmpty() ? row.id : row.displayName;
+            const QString parentId = row.obj.value(QStringLiteral("parentAgentId")).toString();
+            if (m_config.orchestration) {
+                UnitCreateRequest request;
+                request.agentId = row.id;
+                request.displayName = displayName;
+                request.parentAgentId = parentId;
+                (void)m_config.orchestration->createUnit(request);
+                agent = findById(row.id);
+            }
+            if (!agent) {
+                agent = insertUnit(row.id, displayName);
+            }
             if (!agent) {
                 continue;
             }
-            agent->setParentAgentId(row.obj.value(QStringLiteral("parentAgentId")).toString());
+            agent->setParentAgentId(parentId);
             if (sharedUuid.isEmpty()) {
                 sharedUuid = agent->sessionUuid();
             } else {
@@ -574,77 +630,26 @@ void AgentSession::triggerAutoRenameIfNeeded(Agent *agent)
     }
 
     m_autoRenamePending = true;
-
-    ProviderAuth auth;
-    QString providerType;
-    if (!getProviderAuth(auth, providerType)) {
-        LOGW(LogCat::Session) << "【自动重命名】中止：无法获取有效的 Provider 凭据配置"
-            << logf("sessionId", m_sessionId);
+    if (!m_config.titleGenerator) {
         fallbackRename(agent);
+        m_autoRenamePending = false;
         return;
     }
 
-    if (!m_config.providerFactory) {
-        LOGW(LogCat::Session) << "【自动重命名】中止：Provider 工厂未注入"
-            << logf("sessionId", m_sessionId);
-        fallbackRename(agent);
-        return;
-    }
-
-    AbstractProvider *provider = nullptr;
-    try {
-        auto summaryProvider = m_config.providerFactory(providerType);
-        if (!summaryProvider) {
-            LOGW(LogCat::Session) << "【自动重命名】错误：无法创建 Provider，可能不支持此类型"
-                << logf("providerType", providerType);
-            fallbackRename(agent);
+    const QPointer<AgentSession> self(this);
+    const QPointer<Agent> unit(agent);
+    m_config.titleGenerator(firstUserText, [self, unit](const QString &title) {
+        if (!self) {
             return;
         }
-        provider = summaryProvider.release();
-    } catch (const std::exception &e) {
-        LOGW(LogCat::Session) << "【自动重命名】异常：创建 Provider 异常"
-            << logf("error", e.what());
-        fallbackRename(agent);
-        return;
-    } catch (...) {
-        LOGW(LogCat::Session) << "【自动重命名】异常：创建 Provider 未知异常";
-        fallbackRename(agent);
-        return;
-    }
-
-    provider->setParent(this);
-    provider->setAuth(auth);
-
-    ProviderRequest request = buildRenameRequest(firstUserText);
-
-    auto connection = std::make_shared<QMetaObject::Connection>();
-    auto summaryText = std::make_shared<QString>();
-
-    *connection = connect(provider, &AbstractProvider::eventEmitted, this,
-        [this, provider, connection, summaryText](const ProviderEvent &event) {
-            handleRenameEvent(event, provider, *connection, summaryText);
-        });
-
-    LOGD(LogCat::Session) << "【自动重命名】启动异步标题提炼"
-        << logf("providerType", providerType)
-        << logf("firstUserText", firstUserText);
-
-    try {
-        provider->sendRequestWithoutModelRefresh(request);
-    } catch (const std::exception &e) {
-        LOGW(LogCat::Session) << "【自动重命名】异常：发送请求异常"
-            << logf("error", e.what());
-        fallbackRename(agent);
-        m_autoRenamePending = false;
-        disconnect(*connection);
-        provider->deleteLater();
-    } catch (...) {
-        LOGW(LogCat::Session) << "【自动重命名】异常：发送请求未知异常";
-        fallbackRename(agent);
-        m_autoRenamePending = false;
-        disconnect(*connection);
-        provider->deleteLater();
-    }
+        self->m_autoRenamePending = false;
+        const QString trimmed = title.trimmed();
+        if (!trimmed.isEmpty()) {
+            self->setTitle(trimmed);
+        } else {
+            self->fallbackRename(unit);
+        }
+    });
 }
 
 bool AgentSession::isEligibleForRename(Agent *agent, QString &firstUserText) const
@@ -656,7 +661,9 @@ bool AgentSession::isEligibleForRename(Agent *agent, QString &firstUserText) con
         return false;
     }
 
-    if (m_title != QStringLiteral("新会话")) {
+    const bool untitled = m_title.isEmpty()
+        || (!m_config.untitledTitle.isEmpty() && m_title == m_config.untitledTitle);
+    if (!untitled) {
         return false;
     }
 
@@ -695,101 +702,6 @@ bool AgentSession::isEligibleForRename(Agent *agent, QString &firstUserText) con
     return true;
 }
 
-bool AgentSession::getProviderAuth(ProviderAuth &auth, QString &providerType) const
-{
-    if (!m_config.credentialStore) {
-        return false;
-    }
-
-    const SessionRuntime &rt = m_runtime;
-    QString credentialInstanceId = rt.credentialInstanceId;
-    QString modelName = rt.modelName;
-
-    QVariantMap inst = m_config.credentialStore->getInstance(credentialInstanceId);
-    providerType = inst.value(QStringLiteral("providerType")).toString();
-    QString baseUrl = inst.value(QStringLiteral("baseUrl")).toString();
-    QString apiKey = inst.value(QStringLiteral("apiKey")).toString();
-
-    if (providerType.isEmpty() || apiKey.isEmpty()) {
-        LOGW(LogCat::Session) << "【自动重命名】凭据读取失败：providerType 或 apiKey 为空"
-            << logf("providerType", providerType)
-            << logf("hasApiKey", !apiKey.isEmpty());
-        return false;
-    }
-
-    auth = ProviderAuth{ baseUrl, apiKey, modelName };
-    return true;
-}
-
-ProviderRequest AgentSession::buildRenameRequest(const QString &firstUserText) const
-{
-    ProviderRequest request;
-    request.requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    request.systemPrompt = QStringLiteral("你是一个会话标题提炼专家。请阅读用户的第一句话，提炼出一个简短、精准、不超过6个字的中文会话名称作为标题，直接输出该标题，不要包含任何前缀、标点或解释。");
-    request.items.append(ProviderItem::makeUserText(firstUserText));
-    request.maxOutputTokens = 1024;
-    request.temperature = 0.3;
-    request.stream = true;
-    request.reasoning.enabled = false;
-    request.desiredOutput = ProviderOutputSpec::textOnly();
-    return request;
-}
-
-void AgentSession::handleRenameEvent(const ProviderEvent &event, AbstractProvider *provider,
-                                      const QMetaObject::Connection &connection,
-                                      const std::shared_ptr<QString> &summaryText)
-{
-    // 不打印每个 TextDelta/ReasoningDelta，避免自动重命名把日志刷爆。
-    if (event.kind == ProviderEventKind::TextDelta) {
-        *summaryText += event.deltaPayload.text;
-        return;
-    }
-
-    const auto finishRename = [this, provider, connection]() {
-        m_autoRenamePending = false;
-        disconnect(connection);
-        provider->deleteLater();
-    };
-
-    if (event.kind == ProviderEventKind::MessageCompleted) {
-        QString finalTitle = summaryText->trimmed();
-        finalTitle.replace('\n', ' ');
-        finalTitle.replace('\r', ' ');
-
-        if (finalTitle.startsWith(QLatin1Char('"')) && finalTitle.endsWith(QLatin1Char('"'))) {
-            finalTitle = finalTitle.mid(1, finalTitle.length() - 2);
-        }
-        if (finalTitle.startsWith(QStringLiteral("“")) && finalTitle.endsWith(QStringLiteral("”"))) {
-            finalTitle = finalTitle.mid(1, finalTitle.length() - 2);
-        }
-        finalTitle = finalTitle.trimmed();
-
-        if (finalTitle.length() > 8) {
-            finalTitle = finalTitle.mid(0, 8);
-        }
-
-        if (!finalTitle.isEmpty()) {
-            LOGI(LogCat::Session) << "【自动重命名】成功"
-                << logf("title", finalTitle);
-            setTitle(finalTitle);
-        } else {
-            LOGW(LogCat::Session) << "【自动重命名】警告：大模型返回提炼标题为空，走保底机制";
-            fallbackRename(primaryUnit());
-        }
-        finishRename();
-        return;
-    }
-
-    if (event.kind == ProviderEventKind::Error || event.kind == ProviderEventKind::Cancelled) {
-        LOGW(LogCat::Session) << "【自动重命名】API 错误/取消，走保底机制"
-            << logf("kind", event.kind == ProviderEventKind::Error ? "Error" : "Cancelled")
-            << logf("code", event.error.code)
-            << logf("error", event.error.message);
-        fallbackRename(primaryUnit());
-        finishRename();
-    }
-}
-
 void AgentSession::fallbackRename(Agent *agent)
 {
     if (!agent) {
@@ -824,25 +736,17 @@ void AgentSession::fanOutEvent(const core_ir::Event &event,
                                const core_ir::EventContext &context,
                                const core_ir::SubmissionId &submissionId) const
 {
-    for (auto &h : m_protocolHandlers)
-        h(event, context, submissionId);
+    m_protocolHandlers.dispatch(event, context, submissionId);
 }
-
-// ── 内环事件 fan-out ──
 
 core_ir::HandlerId AgentSession::addEventHandler(core_ir::EventHandler handler)
 {
-    const auto id = reinterpret_cast<core_ir::HandlerId>(m_protocolHandlers.size() + 1);
-    m_protocolHandlers.push_back(std::move(handler));
-    return id;
+    return m_protocolHandlers.add(std::move(handler));
 }
 
 void AgentSession::removeEventHandler(core_ir::HandlerId id)
 {
-    const size_t idx = reinterpret_cast<std::uintptr_t>(id) - 1;
-    if (idx < m_protocolHandlers.size()) {
-        m_protocolHandlers.erase(m_protocolHandlers.begin() + static_cast<ptrdiff_t>(idx));
-    }
+    m_protocolHandlers.remove(id);
 }
 
 

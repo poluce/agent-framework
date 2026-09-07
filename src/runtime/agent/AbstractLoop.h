@@ -21,7 +21,6 @@
 #include <QTimer>
 
 #include <functional>
-#include <map>
 #include <memory>
 
 class AbstractProvider;
@@ -408,7 +407,5 @@ private:
     QString m_currentPolicyWorkspace;
     QHash<QString, ToolCall> m_activeToolCallsById;
 
-    // 内环 Event handlers（Event+Context+SubmissionId）
-    std::map<core_ir::HandlerId, core_ir::EventHandler> m_protocolHandlers;
-    core_ir::HandlerId m_nextHandlerId = reinterpret_cast<core_ir::HandlerId>(1);
+    core_ir::EventHandlerRegistry m_protocolHandlers;
 };

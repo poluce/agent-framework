@@ -12,6 +12,18 @@
   - 快照信封：`ApplicationEvent` / `ApplicationEventMessage` / `makeApplicationEvent` / `visitEvent`
   - 快照载荷：`AgentSnapshot` / `SessionSnapshot` / `EventApplicationSnapshot` / `EventSessionSnapshot` / `EventConversationSnapshot` / `EventRuntimeConfigSnapshot` / `EventGlobalConfigSnapshot` / `ProviderInstanceSnapshot` / `EventProviderInstancesSnapshot` / `EventSkillDirectoriesChanged` / `SkillCommand` / `EventSkillCommandsChanged` / `EventSystemPromptSnapshot` / `EventModelCatalogEntry` / `EventModelCatalogChanged`
   - 宿主须在产品侧自持这些类型后再投影；内核 0.5 头里继续留着会把产品壳冻进 ABI。对应产品仓 poluce/agent#25。
+- 自动改名不再内置中文 LLM 调用。注入 `AgentSessionConfig.titleGenerator`；未注入则截取用户消息。不再硬编码标题「新会话」，改认空标题或 `untitledTitle`。
+- 内核 qrc 移除 `role_leader.md` / `role_member.md`。角色模板由宿主放到 `system_prompts/` 或自有 qrc。
+- `AgentSession::fromAgent` 删除。
+
+### 🟡 功能修改
+
+- `AbstractSession` 补上 Loop/Agent 原先向下转型去拿的能力：写协调器、是否主单元、角色/技能/段摘要/回合后 Idle、`notifyFileWritten`。`AbstractLoop` / `Agent` 不再 `static_cast<AgentSession*>`。
+- 会话 `commitRuntime` 把活配置同步到全部单元（不再只打 primary）。
+- `importLedger` 缺单元时先走 `createUnit`（`UnitCreateRequest.agentId` 供配方按原 id 插入），找不到再 `insertUnit`。
+- Agent / Session / Loop / CompactEngine 共用 `core_ir::EventHandlerRegistry` 增删 handler。
+- 写工具成功后调用 `notifyFileWritten`，同会话其他单元读缓存失效。
+- 工具可见性拒绝文案改为「该单元不可见此工具。」
 
 ## [0.5.3] - 2026-09-05
 
