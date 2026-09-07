@@ -8,19 +8,16 @@
 #include <QString>
 #include <QStringList>
 #include <QVariant>
-#include <QVariantMap>
 
 #include <optional>
-#include <memory>
-#include <utility>
 #include <variant>
 
 /**
  * @file CoreEvent.h
- * @brief Core 内环事件 IR（非跨层契约）
+ * @brief 执行单元内环事件 IR
  *
- * 跨层只有 HostCommand/HostEvent。本文件类型仅供 Loop/Agent/Session/投影器/Core 使用。
- * GUI/TUI 不得 include。
+ * Loop / Agent / Session 发出这些事件。宿主自行投影到自己的协议。
+ * 本文件不承载 MCP、团队成员、会话列表、技能目录、凭据目录等产品壳载荷。
  */
 
 namespace core_ir {
@@ -34,9 +31,7 @@ using AgentId = QString;
 using CallId = QString;
 using SessionId = QString;
 
-/// Every core IR event travels on the application bus with an explicit
-/// owner.  Empty fields mean "application/global"; they are never a hint for
-/// a client to infer the owner from a QObject pointer.
+/// 每条内环事件带显式归属。空字段表示无会话/单元归属。
 struct EventContext {
     SessionId sessionId;
     AgentId agentId;
@@ -47,7 +42,7 @@ struct EventContext {
     }
 };
 
-/// Loop 阶段身份（非展示文案）。Host 投影再映射为界面语言。
+/// Loop 阶段身份（非展示文案）。
 enum class AgentPhase {
     Idle,
     Preparing,
@@ -118,23 +113,6 @@ enum class AgentStatus {
     return AgentStatus::Idle;
 }
 
-enum class TeamMemberChange {
-    Joined,
-    Left,
-    Status
-};
-
-[[nodiscard]] inline QString teamMemberChangeKey(const TeamMemberChange change,
-                                                 const AgentStatus status)
-{
-    switch (change) {
-    case TeamMemberChange::Joined: return QStringLiteral("joined");
-    case TeamMemberChange::Left: return QStringLiteral("left");
-    case TeamMemberChange::Status: return agentStatusKey(status);
-    }
-    return agentStatusKey(status);
-}
-
 /// 邮箱消息优先级（内核只负责排序/携带，调度策略由编排决定）。
 enum class InboxPriority {
     Low,
@@ -161,41 +139,6 @@ struct PendingQuestion {
     bool isMultiSelect = false;
     bool answered = false;
 };
-
-enum class McpServerState {
-    Unknown,
-    Pending,
-    Connecting,
-    Ready,
-    Error
-};
-
-[[nodiscard]] inline QString mcpServerStateKey(const McpServerState state)
-{
-    switch (state) {
-    case McpServerState::Pending: return QStringLiteral("Pending");
-    case McpServerState::Connecting: return QStringLiteral("Connecting");
-    case McpServerState::Ready: return QStringLiteral("Ready");
-    case McpServerState::Error: return QStringLiteral("Error");
-    case McpServerState::Unknown: break;
-    }
-    return QStringLiteral("Unknown");
-}
-
-struct McpServerStatus {
-    QString name;
-    McpServerState state = McpServerState::Unknown;
-    int toolCount = 0;
-    bool enabled = true;
-};
-
-// ═══════════════════════════════════════════
-//  跨层命令只有 HostCommand；本文件是 Core 内环 Event IR。
-// ═══════════════════════════════════════════
-
-// ═══════════════════════════════════════════
-//  Core 内环 Event（投影为 HostEvent 后出站）
-// ═══════════════════════════════════════════
 
 // ── Item 生命周期 ──
 
@@ -276,7 +219,7 @@ struct EventToolCallEnd {
     QString turnId;
 };
 
-// Agent 成功写入/编辑的工作区文件（GUI 右栏 touch 高亮；禁止客户端猜路径）
+/// Agent 成功写入/编辑的工作区文件。
 struct EventFileTouched {
     QString path;
     QString toolName;
@@ -298,10 +241,10 @@ struct EventAgentStateChanged {
     bool hasPendingQuestion = false;
     int pendingQuestionCount = 0;
     QList<PendingQuestion> pendingQuestionList;
-    /// next_turn 待发送条数（预览截断归 Host 投影）
+    /// next_turn 待发送条数（预览截断归宿主投影）
     int pendingNextTurnCount = 0;
     QStringList pendingNextTurnPreviews;
-    /// 自上次段摘要/入队末尾起累计的可摘要 token（子代理恒 0）
+    /// 自上次段摘要/入队末尾起累计的可摘要 token（未开段摘要恒 0）
     qint64 segmentSummaryAddedTokens = 0;
 };
 
@@ -323,15 +266,6 @@ struct EventTurnComplete {
     TurnId turnId;
     qint64 durationMs = 0;
     qint64 timeToFirstTokenMs = 0;
-};
-
-// ── 团队 ──
-
-struct EventTeamMemberStatusChanged {
-    AgentId agentId;
-    TeamMemberChange change = TeamMemberChange::Status;
-    AgentStatus agentStatus = AgentStatus::Idle;
-    QString displayName;
 };
 
 // ── 邮箱 ──
@@ -389,7 +323,7 @@ struct EventWarning {
     QString message;
 };
 
-/// 压缩/组装写库原因（非展示文案）。Host 投影再映射为键。
+/// 压缩/组装写库原因（非展示文案）。
 enum class CompactReason {
     Assemble,
     Bulk,
@@ -408,7 +342,7 @@ enum class CompactReason {
     return QStringLiteral("assemble");
 }
 
-/// 压缩/组装写库后通知（Host 可观测摘要库规模；不回传正文）
+/// 压缩/组装写库后通知（可观测摘要库规模；不回传正文）
 struct EventContextCompacted {
     CompactReason reason = CompactReason::Assemble;
     int summaryRecordCount = 0;
@@ -416,117 +350,12 @@ struct EventContextCompacted {
     qint64 summaryTokenEstimate = 0;
 };
 
-struct EventModelCatalogEntry {
-    QString modelId;
-    qint64 contextWindow = 0;
-    QString contextWindowSource;
-    qint64 maxOutputTokens = 0;
-    QString maxOutputTokensSource;
-};
-
-struct EventModelCatalogChanged {
-    QString instanceId;
-    QString requestId;
-    QStringList models;
-    QList<EventModelCatalogEntry> modelEntries;
-    bool loading = false;
-    QString errorMessage;
-};
-
 struct EventImageOutput {
     QString messageId;
     ProviderImageAsset image;
 };
 
-struct EventMcpServersChanged {
-    QList<McpServerStatus> servers;
-};
-
-// ── Snapshot and projection events ──
-
-struct AgentSnapshot {
-    AgentId agentId;
-    QString displayName;
-    QString parentAgentId;
-    AgentStatus status = AgentStatus::Idle;
-    QString summary;
-    QString workingDirectory;
-    bool isPrimary = false;
-    bool selected = false;
-    bool busy = false;
-    bool hasPendingApproval = false;
-    QString pendingApprovalSummary;
-};
-
-struct SessionSnapshot {
-    SessionId sessionId;
-    QString title;
-    QString selectedAgentId;
-    QString workingDirectory;
-    /** fork 源会话 id（空 = 普通/根会话）。TUI 分支面板据此构建 fork 树。 */
-    QString forkedFromSessionId;
-    QList<AgentSnapshot> agents;
-};
-
-struct EventApplicationSnapshot {
-    QList<SessionSnapshot> sessions;
-    SessionId selectedSessionId;
-    // 最近一次 hostCreateSession 产出的 sessionId（含 detached）；非创建快照为空
-    SessionId lastCreatedSessionId;
-    QVariantMap globalConfig;
-};
-
-struct EventSessionSnapshot {
-    SessionSnapshot session;
-};
-
-struct EventConversationSnapshot {
-    QList<ConversationMessage> messages;
-};
-
-struct EventRuntimeConfigSnapshot {
-    QVariantMap values;
-};
-
-struct EventGlobalConfigSnapshot {
-    QVariantMap values;
-};
-
-struct ProviderInstanceSnapshot {
-    QString id;
-    QString name;
-    QString providerType;
-    QString baseUrl;
-    bool hasApiKey = false;
-};
-
-struct EventProviderInstancesSnapshot {
-    QList<ProviderInstanceSnapshot> instances;
-    QStringList providerTypes;
-};
-
-struct EventSkillDirectoriesChanged {
-    QStringList directories;
-};
-
-struct SkillCommand {
-    QString slash;
-    QString skillName;
-    QString description;
-    QString dirName;
-};
-
-struct EventSkillCommandsChanged {
-    QList<SkillCommand> commands;
-};
-
-struct EventSystemPromptSnapshot {
-    QString content;
-};
-
 struct EventShutdownComplete {};
-
-struct ApplicationEvent;
 
 using Event = std::variant<
     EventItemStarted,
@@ -544,7 +373,6 @@ using Event = std::variant<
     EventApprovalRequested,
     EventTurnStarted,
     EventTurnComplete,
-    EventTeamMemberStatusChanged,
     EventInboxMessageEnqueued,
     EventInboxMessageDelivered,
     EventInboxMessageDropped,
@@ -554,43 +382,9 @@ using Event = std::variant<
     EventError,
     EventWarning,
     EventContextCompacted,
-    EventMcpServersChanged,
     EventImageOutput,
-    EventShutdownComplete,
-    std::shared_ptr<ApplicationEvent>>;
-
-using ApplicationEventMessage = std::variant<
-    EventModelCatalogChanged,
-    EventApplicationSnapshot,
-    EventSessionSnapshot,
-    EventConversationSnapshot,
-    EventRuntimeConfigSnapshot,
-    EventGlobalConfigSnapshot,
-    EventProviderInstancesSnapshot,
-    EventSkillDirectoriesChanged,
-    EventSkillCommandsChanged,
-    EventSystemPromptSnapshot>;
-
-struct ApplicationEvent {
-    ApplicationEventMessage msg;
-};
-
-template<typename T>
-Event makeApplicationEvent(T event)
-{
-    return Event{std::make_shared<ApplicationEvent>(ApplicationEvent{ApplicationEventMessage{std::move(event)}})};
-}
-
-template<typename Visitor>
-void visitEvent(const Event &event, Visitor &&visitor)
-{
-    if (const auto *application = std::get_if<std::shared_ptr<ApplicationEvent>>(&event);
-        application && *application) {
-        std::visit(std::forward<Visitor>(visitor), (*application)->msg);
-        return;
-    }
-    std::visit(std::forward<Visitor>(visitor), event);
-}
+    EventShutdownComplete
+>;
 
 /// 测试 fixture 信封；生产 fan-out 不再构造（直接 Event+Context+SubmissionId）。
 struct EventEnvelope {

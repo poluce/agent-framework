@@ -2,10 +2,10 @@
 
 /**
  * @file CoreEventChannel.h
- * @brief Core 内环事件 fan-out 类型别名（非跨层契约）
+ * @brief 执行单元内环事件 fan-out 类型别名
  *
- * 客户端跨层入口只有 HostChannel。本文件提供 Agent/Session/Loop
- * 内部 Event 分发用的 handler 类型（Event + EventContext + SubmissionId）。
+ * Agent / Session / Loop 内部 Event 分发用的 handler 类型
+ * （Event + EventContext + SubmissionId）。
  */
 
 #include "CoreEvent.h"

@@ -2,6 +2,17 @@
 
 本仓库所有值得使用者关注的变更都记录在此。格式采用使用者视角分类（🔴 Breaking / 🟢 新增 / 🟡 修改 / 🔵 修复），版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 🔴 Breaking Changes（升级前必看）
+
+- `types/CoreEvent.h` 只保留执行单元运行时发出的事件。删除产品壳 IR：
+  - MCP：`McpServerState` / `McpServerStatus` / `EventMcpServersChanged`
+  - 团队：`TeamMemberChange` / `EventTeamMemberStatusChanged`
+  - 快照信封：`ApplicationEvent` / `ApplicationEventMessage` / `makeApplicationEvent` / `visitEvent`
+  - 快照载荷：`AgentSnapshot` / `SessionSnapshot` / `EventApplicationSnapshot` / `EventSessionSnapshot` / `EventConversationSnapshot` / `EventRuntimeConfigSnapshot` / `EventGlobalConfigSnapshot` / `ProviderInstanceSnapshot` / `EventProviderInstancesSnapshot` / `EventSkillDirectoriesChanged` / `SkillCommand` / `EventSkillCommandsChanged` / `EventSystemPromptSnapshot` / `EventModelCatalogEntry` / `EventModelCatalogChanged`
+  - 宿主须在产品侧自持这些类型后再投影；内核 0.5 头里继续留着会把产品壳冻进 ABI。对应产品仓 poluce/agent#25。
+
 ## [0.5.3] - 2026-09-05
 
 ### 🟢 新增功能
