@@ -26,10 +26,10 @@ void closeSelection(const QList<ConversationMessage> &entries,
                     const QSet<QString> *protectedIds = nullptr);
 
 /**
- * 从最旧开始按 token 预算选可压缩前缀（已提交、未 compact、非 exempt），
- * 再 closeSelection 保证工具对原子。
+ * 近尾按 retainTokens 原样保留，更旧的已提交/未 compact/非 exempt 前缀可压。
+ * retainTokens==0：只留最末一条候选。切口再 closeSelection（近尾工具对整组保护）。
  */
 [[nodiscard]] QList<QString> selectPrefixToCompact(const QList<ConversationMessage> &entries,
-                                                   qint64 targetTokenCount);
+                                                   qint64 retainTokens);
 
 } // namespace CompactToolPair

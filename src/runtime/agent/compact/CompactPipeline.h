@@ -44,6 +44,7 @@ public:
     void ensureInstalled(bool usesSegmentSummary);
 
     void onCompactionRequested(qint64 currentTokens, qint64 threshold);
+    void onOverflowCompactionRequested();
     void onTurnSucceeded();
     [[nodiscard]] bool requestManualCompaction(qint64 targetTokens = -1);
     void clear();
@@ -73,6 +74,8 @@ private:
     void onCompactionFinished(bool success);
     void onCompactionFailed(const QString &reason);
     void startCompactionEngine(qint64 targetTokensOverride = -1);
+    /// 修剪超长工具结果；若 threshold>0 且修剪后低于阈值则 continue，返回 true。
+    [[nodiscard]] bool pruneToolResultsThenContinue(qint64 threshold);
     void maybeEnqueueSegmentSummary();
     void onSummaryJobFinished(const QString &jobId, bool success, const QString &summaryText,
                               const QList<QString> &spanEntryIds);
@@ -100,6 +103,7 @@ private:
     QString m_lastSummarizedEntryId;
     QString m_lastEnqueuedEntryId;
     bool m_manualCompaction = false;
+    bool m_overflowCompaction = false;
     bool m_waitingSummaryAtBoundary = false;
     qint64 m_boundaryThreshold = 0;
 };

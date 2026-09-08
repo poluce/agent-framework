@@ -186,6 +186,8 @@ public:
     void beginManualCompaction();
     /// 手动压缩收口：回到 Idle，不 continueAfterCompaction
     void endManualCompaction();
+    /// 超窗压缩未能恢复：用暂存的厂商错误 failTurn
+    void failOverflowCompaction();
 
     /// 边界等段摘要：保持 Compacting/Busy，不跑大压；Cancel 时由 Agent 结束等待
     void beginBoundarySummaryWait();
@@ -202,6 +204,8 @@ public:
 
     /// 获取组装后的完整系统提示词
     QString assembledSystemPrompt() const { return m_systemPrompt; }
+    /// 本轮发给模型的工具表（与 startProviderTurnImpl 同源）
+    [[nodiscard]] QList<ProviderToolSpecification> assembledToolSpecs() const { return toolSpecs(); }
 
     // ── 内环事件 fan-out（Core 私有；非跨层契约）──
     core_ir::HandlerId addEventHandler(core_ir::EventHandler handler);
@@ -211,6 +215,8 @@ signals:
     void stateChanged();
     void dataChanged();
     void compactionRequested(qint64 currentTokens, qint64 threshold);
+    /// 厂商确认超窗：压完再重试当前轮（绕过比例阈值）
+    void overflowCompactionRequested();
     /// 主轮成功收口（Completed）；编排 usesSegmentSummary 时用于段摘要入队检查
     void turnSucceeded();
 
@@ -365,6 +371,8 @@ private:
 
     /// 边界等段摘要（leader）；Cancel 结束等待但不 clear 队列
     bool m_waitingBoundarySummary = false;
+    int m_overflowRetriesLeft = 1;
+    QString m_overflowError;
 
     QList<ToolCall> m_pendingToolCalls;
     PendingApprovalRequest m_pendingApproval;

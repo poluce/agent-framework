@@ -102,30 +102,44 @@ void closeSelection(const QList<ConversationMessage> &entries,
 }
 
 QList<QString> selectPrefixToCompact(const QList<ConversationMessage> &entries,
-                                     const qint64 targetTokenCount)
+                                     const qint64 retainTokens)
 {
-    QList<QString> ids;
+    int keepFrom = entries.size();
     qint64 accumulated = 0;
-    const qint64 budget = qMax<qint64>(0, targetTokenCount);
+    const qint64 retain = qMax<qint64>(0, retainTokens);
+    bool keptOne = false;
 
-    for (const ConversationMessage &entry : entries) {
+    for (int i = entries.size() - 1; i >= 0; --i) {
+        const ConversationMessage &entry = entries.at(i);
         if (!isCompactCandidate(entry)) {
             continue;
         }
-
-        const qint64 tokens = estimateEntryTokens(entry);
-        if (!ids.isEmpty() && accumulated + tokens > budget) {
+        accumulated += estimateEntryTokens(entry);
+        keepFrom = i;
+        keptOne = true;
+        if (retain == 0 || accumulated >= retain) {
             break;
         }
-
-        accumulated += tokens;
-        ids.append(entry.id);
     }
 
-    QSet<QString> selected(ids.cbegin(), ids.cend());
-    closeSelection(entries, selected, nullptr);
+    if (!keptOne || keepFrom <= 0) {
+        return {};
+    }
 
-    // 保持账本顺序，便于摘要输入与日志稳定
+    QSet<QString> selected;
+    QSet<QString> protectedIds;
+    for (int i = 0; i < entries.size(); ++i) {
+        const ConversationMessage &entry = entries.at(i);
+        if (i >= keepFrom) {
+            protectedIds.insert(entry.id);
+            continue;
+        }
+        if (isCompactCandidate(entry)) {
+            selected.insert(entry.id);
+        }
+    }
+    closeSelection(entries, selected, &protectedIds);
+
     QList<QString> ordered;
     ordered.reserve(selected.size());
     for (const ConversationMessage &entry : entries) {

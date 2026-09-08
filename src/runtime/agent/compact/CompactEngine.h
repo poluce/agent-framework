@@ -23,8 +23,16 @@ struct SummaryValidation
     QString reason;
 };
 
-/// 压缩引擎：选条 → 组请求材料 → 调 LLM → 校验摘要 → 写回账本
-/// 对标 codex codex-rs/core/src/compact.rs
+/// 上一轮正式请求的可缓存前缀（system / tools / 模型视图前缀）。
+struct CompactBulkReplay
+{
+    QString systemPrompt;
+    QList<ProviderToolSpecification> tools;
+    QList<QString> modelViewPrefixTexts;
+};
+
+/// 压缩引擎：选条 → 组请求 → 调 LLM → 校验摘要 → 写回账本
+/// 大压回放上一轮前缀（吃 KV）；段摘要仍抽文档材料。
 class CompactEngine : public QObject
 {
     Q_OBJECT
@@ -42,10 +50,18 @@ public:
     [[nodiscard]] static QString buildDocumentMaterial(
         const QList<ConversationMessage> &entries,
         qint64 tokenBudget);
-    /// 单条 UserText：任务句 + 文档材料（段摘要与大压共用）
+    /// 单条 UserText：任务句 + 文档材料（段摘要）
     [[nodiscard]] static QList<ProviderItem> buildDocumentCompactInput(
         const QList<ConversationMessage> &entries,
         qint64 tokenBudget);
+    /// 大压 items：模型视图前缀 + 被压区间线路回放 + compact.md 末条 user。
+    /// 线路项为空则返回空（调用方回落抽材料）。
+    [[nodiscard]] static QList<ProviderItem> buildBulkReplayItems(
+        const ProviderRunLedger &ledger,
+        const QList<QString> &compactedIds,
+        const QList<QString> &modelViewPrefixTexts,
+        const QString &instruction,
+        QString *hydrateError = nullptr);
     /// 摘要正文硬校验：拒空/过短/DSML/tool 壳/伪续聊
     [[nodiscard]] static SummaryValidation validateSummaryText(const QString &text);
 
@@ -56,7 +72,8 @@ public:
         ProviderCredential *credentialStore,
         const std::function<std::unique_ptr<AbstractProvider>(const QString &)> &providerFactory,
         const QString &modelName,
-        AbstractProvider *activeProvider = nullptr
+        AbstractProvider *activeProvider = nullptr,
+        CompactBulkReplay replay = {}
     );
     /**
      * 旁路段摘要：直接用入队快照调 LLM，**不**改账本。
@@ -131,6 +148,7 @@ private:
     bool m_running = false;
     /// true：段摘要模式（不写账本）
     bool m_summaryOnly = false;
+    CompactBulkReplay m_replay;
     QMetaObject::Connection m_providerConnection;
     QTimer m_retryTimer;
     core_ir::EventHandlerRegistry m_protocolHandlers;

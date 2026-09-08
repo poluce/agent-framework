@@ -9,6 +9,7 @@
 #include "config/SystemPromptBuilder.h"
 #include "logging/LogManager.h"
 #include "AgentModePolicy.h"
+#include "compact/CompactPolicy.h"
 #include "providers/core/AbstractProvider.h"
 #include "providers/core/ProviderRetryPolicy.h"
 #include "providers/service/ProviderCredential.h"
@@ -553,6 +554,8 @@ void AbstractLoop::resetLoopState()
     // 重置运行计数器
     m_cancelRequested = false;
     m_internalStepCount = 0;
+    m_overflowRetriesLeft = CompactPolicy::kMaxOverflowRetries;
+    m_overflowError.clear();
 
     // 标记为空闲
     m_providerRequestActive = false;
@@ -1196,10 +1199,7 @@ void AbstractLoop::appendExternalMessage(const ConversationMessage &message)
 void AbstractLoop::startProviderTurn()
 {
     // 上下文压缩检测 —— 必须在任何状态修改之前
-    // 语义：threshold = min(contextWindow, compactTriggerTokens?) - compactReserveTokens
-    //   - contextWindow：模型窗口（含用户覆盖）
-    //   - compactTriggerTokens：统一上限；<=0 表示不设统一上限
-    //   - compactReserveTokens：预留；<0 按 0
+    // threshold = window×0.8，再与 compactTriggerTokens（>0）取 min，再减 reserve
     qint64 estimated = -1;
     if (m_activeConfig && m_activeConfig->compactEnabled) {
         // 与 UI 占用同一估算：账本可回放项 + 系统提示/工具 schema 开销
@@ -1208,17 +1208,17 @@ void AbstractLoop::startProviderTurn()
         const qint64 window = m_activeConfig->contextWindow > 0
             ? m_activeConfig->contextWindow
             : ModelContextMetaStore::kDefaultContextWindow;
-        const qint64 unified = m_activeConfig->compactTriggerTokens;
-        const qint64 cap = (unified > 0) ? qMin(window, unified) : window;
-        const qint64 reserve = qMax<qint64>(0, m_activeConfig->compactReserveTokens);
-        const qint64 threshold = cap > reserve ? (cap - reserve) : 0;
+        const qint64 threshold = CompactPolicy::pressureThreshold(
+            window,
+            m_activeConfig->compactTriggerTokens,
+            m_activeConfig->compactReserveTokens);
         if (estimated > threshold) {
             LOGI(LogCat::Agent, logContext()) << "触发压缩"
                 << logf("tokens", estimated)
                 << logf("threshold", threshold)
                 << logf("contextWindow", window)
-                << logf("unifiedTrigger", unified)
-                << logf("reserve", reserve)
+                << logf("unifiedTrigger", m_activeConfig->compactTriggerTokens)
+                << logf("reserve", m_activeConfig->compactReserveTokens)
                 << logf("providerInputFloor", m_ledger.lastProviderInputTokens());
             setPhase(Phase::Compacting);
             emit compactionRequested(estimated, threshold);
@@ -1264,18 +1264,7 @@ void AbstractLoop::startProviderTurnImpl(qint64 contextTokenEstimate)
     }
     // 模型短上下文：摘要链 + 最近用户醒目块等前缀（Agent 已打标签；不物化进账本）
     if (!m_modelViewPrefixTexts.isEmpty()) {
-        QList<ProviderItem> prefixed;
-        prefixed.reserve(m_modelViewPrefixTexts.size() + build.request.items.size());
-        for (const QString &text : m_modelViewPrefixTexts) {
-            if (text.trimmed().isEmpty()) {
-                continue;
-            }
-            // 已带方括号标签则原样注入；否则补默认摘要标签
-            const QString body = text.trimmed().startsWith(QLatin1Char('['))
-                ? text
-                : (QStringLiteral("[上下文摘要]\n") + text);
-            prefixed.append(ProviderItem::makeUserText(body));
-        }
+        QList<ProviderItem> prefixed = makeModelViewPrefixItems(m_modelViewPrefixTexts);
         prefixed += build.request.items;
         build.request.items = std::move(prefixed);
     }
@@ -1325,6 +1314,16 @@ void AbstractLoop::beginManualCompaction()
     clearStickyTerminalPhase();
     switchMode(LoopMode::Busy);
     setPhase(Phase::Compacting);
+}
+
+void AbstractLoop::failOverflowCompaction()
+{
+    const QString msg = m_overflowError.isEmpty()
+        ? QStringLiteral("上下文超窗，压缩未能恢复。")
+        : m_overflowError;
+    m_overflowError.clear();
+    failTurn(msg);
+    emitProtocolEvent(core_ir::EventError{m_agentId, msg});
 }
 
 void AbstractLoop::endManualCompaction()
@@ -2682,8 +2681,22 @@ void AbstractLoop::handleError(const ProviderEvent &event)
     stopModelResponseWatchdog();
     m_providerRequestActive = false;
     finalizeAndDiscardTurn(failedTurnId);
-    failTurn(displayMessage);
 
+    if (CompactPolicy::isContextWindowExceeded(error)
+        && m_activeConfig && m_activeConfig->compactEnabled
+        && m_overflowRetriesLeft > 0
+        && m_phase != Phase::Compacting
+        && !m_waitingBoundarySummary) {
+        --m_overflowRetriesLeft;
+        m_overflowError = displayMessage;
+        LOGW(LogCat::Agent, logContext()) << "上下文超窗，尝试压缩后重试"
+            << logf("retriesLeft", m_overflowRetriesLeft);
+        setPhase(Phase::Compacting);
+        emit overflowCompactionRequested();
+        return;
+    }
+
+    failTurn(displayMessage);
     emitProtocolEvent(core_ir::EventError{m_agentId, displayMessage});
 }
 
