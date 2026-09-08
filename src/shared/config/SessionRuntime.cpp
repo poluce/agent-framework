@@ -169,6 +169,7 @@ CompactConfig SessionRuntime::toCompactConfig() const
     // 只映射执行参数；触发阈值 / 开关由 AbstractLoop 读 SessionRuntime
     CompactConfig cc;
     cc.targetTokenCount = compactTargetTokens;
+    cc.retainTokenCount = compactTargetTokens;
     cc.maxRetries = compactMaxRetries;
     cc.userMessageTokenBudget = compactUserMessageTokenBudget;
     cc.maxOutputTokens = compactMaxOutputTokens;

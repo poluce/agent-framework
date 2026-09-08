@@ -52,7 +52,7 @@ public:
     /// 环境块是否已就绪（prepare() 的异步检测完成）。就绪前 buildPrompt 会缺环境块。
     [[nodiscard]] bool environmentReady() const { return m_envReady; }
 
-    /// 大压缩 system：内置 compact.md + 注入槽位追加为补充
+    /// 大压缩指令（末条 user）：内置 compact.md + 注入槽位追加为补充
     [[nodiscard]] QString compactSystemPrompt() const;
     [[nodiscard]] static QString builtinCompactSystemPrompt();
     /// 段摘要 system：内置 summary.md + 注入槽位追加为补充

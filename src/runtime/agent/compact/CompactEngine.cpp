@@ -1,5 +1,6 @@
 #include "CompactEngine.h"
 
+#include "CompactPolicy.h"
 #include "CompactToolPair.h"
 #include "agent/ProviderRunLedger.h"
 #include "config/SystemPromptBuilder.h"
@@ -11,6 +12,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
+#include <QUuid>
 #include "providers/core/AbstractProvider.h"
 #include "providers/ProviderTypes/ProviderTypes.h"
 #include "providers/service/ProviderCredential.h"
@@ -234,7 +236,8 @@ void CompactEngine::start(
     ProviderCredential *credentialStore,
     const std::function<std::unique_ptr<AbstractProvider>(const QString &)> &providerFactory,
     const QString &modelName,
-    AbstractProvider *activeProvider
+    AbstractProvider *activeProvider,
+    CompactBulkReplay replay
 )
 {
     if (m_running) {
@@ -272,6 +275,7 @@ void CompactEngine::start(
     }
 
     m_ledger = ledger;
+    m_replay = std::move(replay);
     m_summaryText.clear();
     m_lastBulkSummaryText.clear();
     m_lastBulkCompactedIds.clear();
@@ -354,7 +358,7 @@ bool CompactEngine::isRunning() const
 QList<QString> CompactEngine::selectEntriesToCompact(const ProviderRunLedger &ledger) const
 {
     // 源头：token 前缀 + 工具对原子闭合（Call/Result 同 mark，禁止半对）
-    return CompactToolPair::selectPrefixToCompact(ledger.entries(), config.targetTokenCount);
+    return CompactToolPair::selectPrefixToCompact(ledger.entries(), config.retainTokenCount);
 }
 
 void CompactEngine::startRequest()
@@ -381,22 +385,41 @@ void CompactEngine::startRequest()
 
     ProviderRequest request;
     request.requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    // 段摘要与大压提示词分离：有注入拼装器则走槽位追加，否则只用内置模板
+    request.maxOutputTokens = config.maxOutputTokens;
+    request.desiredOutput = ProviderOutputSpec::textOnly();
+
     if (m_summaryOnly) {
         request.systemPrompt = m_promptBuilder
             ? m_promptBuilder->segmentSystemPrompt()
             : SystemPromptBuilder::builtinSegmentSystemPrompt();
+        request.items = CompactEngine::buildDocumentCompactInput(
+            m_selectedEntries, config.userMessageTokenBudget);
+        request.tools = {};
     } else {
-        request.systemPrompt = m_promptBuilder
+        const QString instruction = m_promptBuilder
             ? m_promptBuilder->compactSystemPrompt()
             : SystemPromptBuilder::builtinCompactSystemPrompt();
+        QString hydrateError;
+        QList<ProviderItem> replayed;
+        if (m_ledger) {
+            replayed = CompactEngine::buildBulkReplayItems(
+                *m_ledger, m_compactedIds, m_replay.modelViewPrefixTexts,
+                instruction, &hydrateError);
+        }
+        if (!replayed.isEmpty()) {
+            request.systemPrompt = m_replay.systemPrompt;
+            request.tools = m_replay.tools;
+            request.items = std::move(replayed);
+        } else {
+            LOGW(LogCat::Agent) << "大压回放为空，回落抽材料"
+                << logf("hydrateError", hydrateError)
+                << logf("entries", m_compactedIds.size());
+            request.systemPrompt = instruction;
+            request.items = CompactEngine::buildDocumentCompactInput(
+                m_selectedEntries, config.userMessageTokenBudget);
+            request.tools = {};
+        }
     }
-    // 段摘要与大压：规则文档材料 + 任务句，单条 UserText（非 API role 回放）
-    request.items = CompactEngine::buildDocumentCompactInput(
-        m_selectedEntries, config.userMessageTokenBudget);
-    request.tools = {};
-    request.maxOutputTokens = config.maxOutputTokens;
-    request.desiredOutput = ProviderOutputSpec::textOnly();
     m_tempProvider->sendRequestWithoutModelRefresh(request);
 }
 
@@ -439,6 +462,21 @@ void CompactEngine::finishWithSummary()
             << logf("preview", m_summaryText.left(120));
         scheduleRetry(QStringLiteral("摘要校验失败: ") + validation.reason);
         return;
+    }
+
+    if (!m_summaryOnly) {
+        qint64 sourceTokens = 0;
+        for (const ConversationMessage &entry : m_selectedEntries) {
+            sourceTokens += estimateContextTokensForText(entry.text);
+        }
+        const qint64 summaryTokens = estimateContextTokensForText(m_summaryText);
+        if (!CompactPolicy::summaryShrinks(sourceTokens, summaryTokens)) {
+            LOGW(LogCat::Agent) << "摘要未缩短，丢弃"
+                << logf("sourceTokens", sourceTokens)
+                << logf("summaryTokens", summaryTokens);
+            scheduleRetry(QStringLiteral("does_not_shrink"));
+            return;
+        }
     }
 
     if (m_summaryOnly) {
@@ -493,14 +531,23 @@ void CompactEngine::finishWithFailure(const QString &reason)
         return;
     }
 
-    LOGW(LogCat::Agent) << "压缩失败，降级为截断"
+    const bool allowTruncate = !reason.contains(QStringLiteral("does_not_shrink"));
+    if (allowTruncate) {
+        LOGW(LogCat::Agent) << "压缩失败，降级为截断"
+            << logf("reason", reason);
+        const bool truncated = truncateOldestRoundTrip(*m_ledger);
+        emit compactionFailed(reason);
+        pushEvent(core_ir::EventWarning{{}, reason});
+        resetState();
+        emit compactionFinished(truncated);
+        return;
+    }
+    LOGW(LogCat::Agent) << "压缩失败，不改账本"
         << logf("reason", reason);
-    const bool truncated = truncateOldestRoundTrip(*m_ledger);
     emit compactionFailed(reason);
     pushEvent(core_ir::EventWarning{{}, reason});
     resetState();
-    // 截断成功：Agent 侧发 ContextCompacted(reason=truncate)
-    emit compactionFinished(truncated);
+    emit compactionFinished(false);
 }
 
 void CompactEngine::finishSkipped(const QString &userMessage)
@@ -521,6 +568,7 @@ void CompactEngine::resetState()
     m_retryCount = 0;
     m_running = false;
     m_summaryOnly = false;
+    m_replay = {};
 }
 
 void CompactEngine::applyCompaction(ProviderRunLedger &ledger,
@@ -745,6 +793,23 @@ QString CompactEngine::buildDocumentMaterial(
         }
     }
     return parts.join(QStringLiteral("\n\n"));
+}
+
+QList<ProviderItem> CompactEngine::buildBulkReplayItems(
+    const ProviderRunLedger &ledger,
+    const QList<QString> &compactedIds,
+    const QList<QString> &modelViewPrefixTexts,
+    const QString &instruction,
+    QString *hydrateError)
+{
+    const QList<ProviderItem> replayed = ledger.replayItemsForEntries(compactedIds, hydrateError);
+    if (replayed.isEmpty()) {
+        return {};
+    }
+    QList<ProviderItem> items = makeModelViewPrefixItems(modelViewPrefixTexts);
+    items += replayed;
+    items.append(ProviderItem::makeUserText(instruction));
+    return items;
 }
 
 QList<ProviderItem> CompactEngine::buildDocumentCompactInput(

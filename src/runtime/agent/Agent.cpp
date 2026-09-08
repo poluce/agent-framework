@@ -69,6 +69,8 @@ Agent::Agent(const QString &agentId,
     m_compact->setRuntime(m_runtime);
     connect(m_loop.get(), &AbstractLoop::compactionRequested, m_compact.get(),
             &CompactPipeline::onCompactionRequested);
+    connect(m_loop.get(), &AbstractLoop::overflowCompactionRequested, m_compact.get(),
+            &CompactPipeline::onOverflowCompactionRequested);
     connect(m_loop.get(), &AbstractLoop::turnSucceeded, m_compact.get(),
             &CompactPipeline::onTurnSucceeded);
     connect(m_compact.get(), &CompactPipeline::protocolEvent, this,

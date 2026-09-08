@@ -1,5 +1,7 @@
 #include "ProviderRunLedger.h"
 
+#include "compact/CompactPolicy.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -726,6 +728,23 @@ qint64 estimateContextTokensForToolSpecs(const QList<ProviderToolSpecification> 
     return total;
 }
 
+QList<ProviderItem> makeModelViewPrefixItems(const QList<QString> &texts)
+{
+    QList<ProviderItem> items;
+    items.reserve(texts.size());
+    for (const QString &text : texts) {
+        if (text.trimmed().isEmpty()) {
+            continue;
+        }
+        const QString body = CompactPolicy::frameCheckpoint(text);
+        if (body.trimmed().isEmpty()) {
+            continue;
+        }
+        items.append(ProviderItem::makeUserText(body));
+    }
+    return items;
+}
+
 QString effectiveToolCallArgumentsJson(const ToolCall &toolCall)
 {
     const QString rawArguments = toolCall.rawInputJson.trimmed();
@@ -1171,6 +1190,22 @@ bool ProviderRunLedger::markSubmitted(const QList<QString> &entryIds)
     return changed;
 }
 
+bool ProviderRunLedger::updateToolResultOutput(const QString &entryId, const QString &output)
+{
+    ConversationMessage *entry = findById(entryId);
+    if (!entry || entry->kind != ConversationMessage::Kind::ToolResult) {
+        return false;
+    }
+    entry->text = output;
+    entry->wasTruncated = true;
+    if (ProviderRecord *record = findProviderRecord(entryId)) {
+        record->item.output = output;
+        record->item.wasTruncated = true;
+        record->tokenEstimate = -1;
+    }
+    return true;
+}
+
 bool ProviderRunLedger::markEntriesCompacted(const QList<QString> &entryIds)
 {
     if (entryIds.isEmpty()) {
@@ -1224,6 +1259,23 @@ ProviderRequestBuild ProviderRunLedger::buildRequest(const QList<ProviderToolSpe
     }
     build.request.items = hydrateItemsForRequest(std::move(items), &build.hydrateError);
     return build;
+}
+
+QList<ProviderItem> ProviderRunLedger::replayItemsForEntries(const QList<QString> &entryIds,
+                                                            QString *hydrateError) const
+{
+    const QSet<QString> wanted(entryIds.cbegin(), entryIds.cend());
+    QList<ProviderItem> items;
+    for (const ProviderRecord &record : m_providerRecords) {
+        if (record.compacted || !wanted.contains(record.entryId)) {
+            continue;
+        }
+        if (!isReplayableReasoningItem(record.item)) {
+            continue;
+        }
+        items.append(record.item);
+    }
+    return hydrateItemsForRequest(std::move(items), hydrateError);
 }
 
 qint64 ProviderRunLedger::estimatedContextTokens(const qint64 requestOverheadTokens)

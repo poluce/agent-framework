@@ -3,11 +3,14 @@
 #include <QtCore/qtypes.h>
 
 /// 压缩执行参数（给 CompactEngine）。
-/// 触发门控在 AbstractLoop：min(contextWindow, compactTriggerTokens?) − reserve；
+/// 触发门控在 AbstractLoop：window×0.8，再与 compactTriggerTokens / reserve 取限。
 /// 不在此结构重复 trigger / enabled。
 struct CompactConfig
 {
-    /// 压缩后上下文的目标 token 数
+    /// 近尾原样保留的 token 预算（选型从尾向前累加；0 = 只留最末一条候选）
+    qint64 retainTokenCount = 40000;
+
+    /// 压缩后上下文的目标 token 数（兼容旧字段；选型走 retainTokenCount）
     qint64 targetTokenCount = 40000;
 
     /// 压缩时保留用户消息的 token 预算

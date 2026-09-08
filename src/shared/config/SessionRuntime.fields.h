@@ -45,10 +45,11 @@ GD_FIELD(int,     maxInboxMessageSize,     0)
 
 // ── 压缩 ──
 GD_FIELD(bool,    compactEnabled,              true)
-/// 统一触发上限（token）；与 contextWindow 取 min 后再减预留。<=0 表示不设统一上限。
+/// 统一触发上限（token）；threshold = min(window×0.8, 本值若>0) − reserve。<=0 表示不设统一上限。
 GD_FIELD(qint64,  compactTriggerTokens,        256000)
-/// 触发预留（token）：threshold = min(contextWindow, compactTriggerTokens) - reserve
+/// 触发预留（token）
 GD_FIELD(qint64,  compactReserveTokens,        16384)
+/// 兼容旧配置；大压近尾保留现按 window×0.16，本字段不再驱动选型
 GD_FIELD(qint64,  compactTargetTokens,         40000)
 GD_FIELD(int,     compactMaxRetries,           2)
 GD_FIELD(qint64,  compactUserMessageTokenBudget, 20000)

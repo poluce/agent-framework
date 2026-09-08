@@ -1,6 +1,7 @@
 #include "CompactPipeline.h"
 
 #include "CompactEngine.h"
+#include "CompactPolicy.h"
 #include "ModelViewAssembler.h"
 #include "ModelViewStore.h"
 #include "SummaryJobQueue.h"
@@ -82,7 +83,12 @@ void CompactPipeline::onCompactionRequested(const qint64 currentTokens, const qi
         << logf("threshold", threshold);
 
     m_manualCompaction = false;
+    m_overflowCompaction = false;
     m_boundaryThreshold = threshold;
+
+    if (pruneToolResultsThenContinue(threshold)) {
+        return;
+    }
 
     if (!m_queue) {
         startCompactionEngine();
@@ -90,6 +96,27 @@ void CompactPipeline::onCompactionRequested(const qint64 currentTokens, const qi
     }
 
     onBoundaryCompactionRequested(threshold);
+}
+
+void CompactPipeline::onOverflowCompactionRequested()
+{
+    LOGI(LogCat::Agent) << "收到超窗压缩请求"
+        << logf("agentId", m_agentId);
+    m_manualCompaction = false;
+    m_overflowCompaction = true;
+    m_waitingSummaryAtBoundary = false;
+    if (m_loop && m_loop->isWaitingBoundarySummary()) {
+        m_loop->endBoundarySummaryWait(true);
+    }
+    clearSummaryQueueForBulk();
+    if (m_loop) {
+        const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
+        if (pruned > 0) {
+            m_loop->refreshContextTokenEstimate();
+            emit unitDataChanged();
+        }
+    }
+    startCompactionEngine();
 }
 
 void CompactPipeline::onBoundaryCompactionRequested(const qint64 threshold)
@@ -152,7 +179,15 @@ bool CompactPipeline::requestManualCompaction(const qint64 targetTokens)
         << logf("targetTokens", targetTokens);
 
     m_manualCompaction = true;
+    m_overflowCompaction = false;
     m_loop->beginManualCompaction();
+    if (m_loop) {
+        const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
+        if (pruned > 0) {
+            m_loop->refreshContextTokenEstimate();
+            emit unitDataChanged();
+        }
+    }
     startCompactionEngine(targetTokens);
     return true;
 }
@@ -181,6 +216,7 @@ void CompactPipeline::cancelInFlight()
         m_engine->cancel();
     }
     m_manualCompaction = false;
+    m_overflowCompaction = false;
 }
 
 void CompactPipeline::clear()
@@ -334,16 +370,25 @@ void CompactPipeline::startCompactionEngine(const qint64 targetTokensOverride)
         return;
     }
     m_engine->config = m_runtime.toCompactConfig();
-    if (targetTokensOverride > 0) {
-        m_engine->config.targetTokenCount = targetTokensOverride;
+    if (m_overflowCompaction) {
+        m_engine->config.retainTokenCount = 0;
+    } else if (targetTokensOverride > 0) {
+        m_engine->config.retainTokenCount = targetTokensOverride;
+    } else {
+        m_engine->config.retainTokenCount = CompactPolicy::retainTokens(m_runtime.contextWindow);
     }
+    CompactBulkReplay replay;
+    replay.systemPrompt = m_loop->assembledSystemPrompt();
+    replay.tools = m_loop->assembledToolSpecs();
+    replay.modelViewPrefixTexts = m_loop->modelViewPrefixTexts();
     m_engine->start(
         &m_loop->ledger(),
         m_runtime.credentialInstanceId,
         m_credentialStore,
         m_providerFactory,
         m_runtime.modelName,
-        m_loop->provider());
+        m_loop->provider(),
+        std::move(replay));
 }
 
 void CompactPipeline::onCompactionFinished(const bool success)
@@ -380,7 +425,9 @@ void CompactPipeline::onCompactionFinished(const bool success)
     }
 
     const bool manual = m_manualCompaction;
+    const bool overflow = m_overflowCompaction;
     m_manualCompaction = false;
+    m_overflowCompaction = false;
     m_waitingSummaryAtBoundary = false;
 
     if (manual && m_loop) {
@@ -390,9 +437,41 @@ void CompactPipeline::onCompactionFinished(const bool success)
     emit unitStateChanged();
     emit unitDataChanged();
 
+    if (overflow && m_loop) {
+        if (success) {
+            m_loop->continueAfterCompaction();
+        } else {
+            m_loop->failOverflowCompaction();
+        }
+        return;
+    }
+
     if (!manual && m_loop) {
         m_loop->continueAfterCompaction();
     }
+}
+
+bool CompactPipeline::pruneToolResultsThenContinue(const qint64 threshold)
+{
+    if (!m_loop) {
+        return false;
+    }
+    const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
+    if (pruned > 0) {
+        LOGI(LogCat::Agent) << "压缩前修剪工具结果"
+            << logf("agentId", m_agentId)
+            << logf("pruned", pruned);
+        m_loop->refreshContextTokenEstimate();
+        emit unitDataChanged();
+        if (threshold > 0 && m_loop->currentContextTokenEstimate() <= threshold) {
+            LOGI(LogCat::Agent) << "修剪后低于阈值，跳过大压"
+                << logf("tokens", m_loop->currentContextTokenEstimate())
+                << logf("threshold", threshold);
+            m_loop->continueAfterCompaction();
+            return true;
+        }
+    }
+    return false;
 }
 
 void CompactPipeline::onCompactionFailed(const QString &reason)

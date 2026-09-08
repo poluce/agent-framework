@@ -31,6 +31,9 @@ struct ProviderRequestBuild
 [[nodiscard]] qint64 estimateContextTokensForItem(const ProviderItem &item);
 [[nodiscard]] qint64 estimateContextTokensForToolSpecs(const QList<ProviderToolSpecification> &tools);
 
+/// 模型短上下文前缀 → UserText items。须与 Loop 注入字节一致，压缩回放才能吃 KV。
+[[nodiscard]] QList<ProviderItem> makeModelViewPrefixItems(const QList<QString> &texts);
+
 class ProviderRunLedger
 {
 public:
@@ -72,11 +75,16 @@ public:
     bool markSubmitted(const QList<QString> &entryIds);
     /// 标记已压缩；有标记返回 true。
     bool markEntriesCompacted(const QList<QString> &entryIds);
+    /// 改写 ToolResult 正文（UI 投影 + 线路 output），并标 wasTruncated。
+    bool updateToolResultOutput(const QString &entryId, const QString &output);
     // 检查是否有 ToolCall 条目缺少对应的 ToolResult（会导致 API 400 错误）
     [[nodiscard]] bool hasUnresolvedToolCalls() const;
     [[nodiscard]] ProviderRequestBuild buildRequest(const QList<ProviderToolSpecification> &tools,
                                                     const ProviderOutputSpec &desiredOutput = ProviderOutputSpec::textOnly(),
                                                     const QString &conversationId = {}) const;
+    /// 按线路顺序收集指定 entry 的可回放项（规则同 buildRequest：跳过 compacted / 空推理，hydrate）。
+    [[nodiscard]] QList<ProviderItem> replayItemsForEntries(const QList<QString> &entryIds,
+                                                           QString *hydrateError = nullptr) const;
     /**
      * 当前可回放上下文占用估算（O(记录数)，无 hydrate / 无 buildRequest）。
      * 可选 overhead：系统提示 + 工具 schema 等请求级固定开销。
