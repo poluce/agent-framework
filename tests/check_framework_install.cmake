@@ -76,8 +76,8 @@ if(NOT EXISTS "${_cmake}/AgentFrameworkTargets.cmake")
     message(FATAL_ERROR "missing ${_cmake}/AgentFrameworkTargets.cmake")
 endif()
 file(READ "${_cmake}/AgentFrameworkConfig.cmake" _cfg)
-if(NOT _cfg MATCHES "set\\(AgentFramework_VERSION \"0\\.6\\.1\"\\)")
-    message(FATAL_ERROR "AgentFrameworkConfig.cmake missing version 0.6.1:\n${_cfg}")
+if(NOT _cfg MATCHES "set\\(AgentFramework_VERSION \"0\\.6\\.2\"\\)")
+    message(FATAL_ERROR "AgentFrameworkConfig.cmake missing version 0.6.2:\n${_cfg}")
 endif()
 
 foreach(_rel IN ITEMS

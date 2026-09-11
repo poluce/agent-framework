@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-11
+
 ### 🟢 新增功能
 
 - **`inspect_tool` 元工具**：`ScriptToolSource` 新增只读元工具 `inspect_tool`。支持留空列出所有自建工具概要，或指定名称提取纯源码、入参 Schema 与更新指引，实现自建工具增删改查闭环。
