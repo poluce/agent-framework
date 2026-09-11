@@ -273,6 +273,12 @@ void SystemPromptBuilder::setUserCustomPrompt(const QString &text)
     invalidateStableCache();
 }
 
+void SystemPromptBuilder::setRoleCustomPrompt(const QString &text)
+{
+    // 角色块每次 buildPrompt 现拼，不进稳定缓存。
+    m_roleCustomPrompt = text.trimmed();
+}
+
 // ── 核心拼接 ──
 
 QString SystemPromptBuilder::builtinCompactSystemPrompt()
@@ -422,7 +428,18 @@ QString SystemPromptBuilder::assembleUserBlock() const
 
 QString SystemPromptBuilder::assembleRoleBlock(const AgentPromptContext &ctx) const
 {
-    return applyRolePlaceholders(loadNamedPromptTemplate(ctx.rolePromptFile), ctx);
+    QStringList parts;
+    const QString tmpl = loadNamedPromptTemplate(ctx.rolePromptFile).trimmed();
+    if (!tmpl.isEmpty()) {
+        parts << tmpl;
+    }
+    if (!m_roleCustomPrompt.isEmpty()) {
+        parts << m_roleCustomPrompt;
+    }
+    if (parts.isEmpty()) {
+        return {};
+    }
+    return applyRolePlaceholders(parts.join(QStringLiteral("\n\n")), ctx);
 }
 
 QString SystemPromptBuilder::loadNamedPromptTemplate(const QString &fileName) const

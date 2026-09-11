@@ -12,8 +12,8 @@ class AbstractSession;
  * @brief 脚本工具桥：把磁盘上的脚本（py/js/ts）变成内核工具。
  *
  * 每个脚本一个长驻进程，JSON 行协议双通道：
- *  - 同步：invoke 请求 → result 响应（Completion 回调）
- *  - 异步：脚本主动发 event → 投进目标单元邮箱（UnitInboxMessage）
+ *  - sync：invoke 请求 → 一行 JSON 结果（推荐 type=result 带回 id；无 type 时绑定这次调用）
+ *  - push：须用信封（invoke / result / event）；event 投进目标单元邮箱
  *
  * 目录：setToolDirectory（持久，重启扫描加载）/ setEphemeralDirectory（临时，析构清理）。
  * 文件按 <dir>/<agentId>/<name>.<ext> 组织；首行 manifest 头声明 spec。
@@ -29,6 +29,7 @@ public:
         ToolSpec spec;
         QString filePath;
         QString language;   // py / js / ts
+        QString scope = QStringLiteral("project"); // project / global / session
         bool ephemeral = false;
         bool pushMode = false;
     };
@@ -36,9 +37,13 @@ public:
     explicit ScriptToolSource(QObject *parent = nullptr);
     ~ScriptToolSource() override;
 
-    /// 持久工具目录（重启扫描加载）。设置即触发扫描。
+    /// 全局/持久工具目录（跨项目复用，重启扫描加载）。设置即触发扫描。
     void setToolDirectory(const QString &dir);
-    /// 临时工具目录（本源析构时删除其中的工具文件）。
+    /// 全局工具目录显式设置（等价于 setToolDirectory）。
+    void setGlobalDirectory(const QString &dir);
+    /// 项目级工具目录（当前工程内工具，随代码库持久）。设置即触发扫描。
+    void setProjectDirectory(const QString &dir);
+    /// 临时/会话级工具目录（本源析构或会话清理时删除其中的工具文件）。
     void setEphemeralDirectory(const QString &dir);
     /// 语言 → 运行时命令（缺省 py=python3 / js=node / ts=ts-node）。
     void setRuntimeCommand(const QString &language, const QString &command);
@@ -69,18 +74,22 @@ private:
 
     void handleCreateTool(const ToolCall &call, const ToolInvokeContext &ctx, Completion done);
     void handleDeleteTool(const ToolCall &call, const ToolInvokeContext &ctx, Completion done);
+    void handleInspectTool(const ToolCall &call, const ToolInvokeContext &ctx, Completion done);
+    void dropProcess(const QString &name, const QString &reason);
     void rescan();
-    void scanDir(const QString &dir);
+    void scanDir(const QString &dir, const QString &defaultScope);
     ScriptProcess *processFor(const QString &toolName);
     void handleEvent(const QString &toolName, const QJsonObject &event);
     /// 杀全部进程、清订阅、注销临时工具（删文件）；持久工具保留。
     void resetSessionState();
     static ToolSpec createToolSpec();
     static ToolSpec deleteToolSpec();
+    static ToolSpec inspectToolSpec();
     static QJsonObject parseManifest(const QByteArray &head);
 
-    QString m_toolDir;
-    QString m_ephemeralDir;
+    QString m_toolDir;       // global tools
+    QString m_projectDir;    // project tools
+    QString m_ephemeralDir;  // session tools
     QHash<QString, QString> m_runtimeCommands;
     int m_idleTimeoutMs = 60000;
     int m_invokeTimeoutMs = 60000;

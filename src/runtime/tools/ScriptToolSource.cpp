@@ -68,12 +68,14 @@ public:
         connect(&m_idleTimer, &QTimer::timeout, this, [this] { stop(); });
         connect(&m_process, &QProcess::readyReadStandardOutput, this, [this] { handleStdout(); });
         connect(&m_process, &QProcess::readyReadStandardError, this, [this] {
+            const QByteArray err = m_process.readAllStandardError();
+            appendStderr(err);
             LOGD(LogCat::Tool) << "脚本 stderr"
                 << logf("tool", m_tool.spec.name)
-                << QString::fromUtf8(m_process.readAllStandardError()).trimmed();
+                << QString::fromUtf8(err).trimmed();
         });
         connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
-            failPending(QStringLiteral("脚本进程错误（%1）").arg(int(err)));
+            failPending(formatErrorWithStderr(QStringLiteral("脚本进程错误（%1）").arg(int(err))));
             for (QTimer *t : std::as_const(m_invokeTimers)) {
                 t->deleteLater();
             }
@@ -82,7 +84,8 @@ public:
         });
         connect(&m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                 this, [this](int exitCode, QProcess::ExitStatus) {
-            failPending(QStringLiteral("脚本进程退出（exit=%1）").arg(exitCode));
+            drainStdout();
+            failPending(formatErrorWithStderr(QStringLiteral("脚本进程退出（exit=%1）").arg(exitCode)));
             for (QTimer *t : std::as_const(m_invokeTimers)) {
                 t->deleteLater();
             }
@@ -130,16 +133,27 @@ public:
         if (m_process.state() == QProcess::NotRunning) {
             start();
         }
+        if (m_pending.isEmpty()) {
+            m_stderrBuffer.clear();
+        }
         const QString reqId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         m_pending.insert(reqId, PendingInvoke{callId, std::move(done)});
 
         auto *timer = new QTimer(this);
         timer->setSingleShot(true);
         connect(timer, &QTimer::timeout, this, [this, reqId, timer]() {
-            m_pending.remove(reqId);
             m_invokeTimers.remove(reqId);
             timer->deleteLater();
-            failPending(QStringLiteral("脚本工具调用超时（%1）").arg(m_tool.spec.name));
+            const auto it = m_pending.find(reqId);
+            if (it == m_pending.end()) {
+                return;
+            }
+            PendingInvoke pending = it.value();
+            m_pending.erase(it);
+            const QString reason = formatErrorWithStderr(
+                QStringLiteral("脚本工具调用超时（%1）").arg(m_tool.spec.name));
+            pending.callback(errorResult(m_tool.spec.name, reason, pending.callId));
+            failPending(reason);
             stop();
         });
         timer->start(m_invokeTimeoutMs);
@@ -181,49 +195,106 @@ private:
     void handleStdout()
     {
         m_buffer += m_process.readAllStandardOutput();
+        consumeCompleteLines();
+    }
+
+    /// 退出前把 stdout 剩余半行也收掉（一次性脚本常不打末尾换行）。
+    void drainStdout()
+    {
+        handleStdout();
+        const QByteArray rest = m_buffer.trimmed();
+        m_buffer.clear();
+        if (!rest.isEmpty()) {
+            handleJsonLine(rest);
+        }
+    }
+
+    void appendStderr(const QByteArray &data)
+    {
+        constexpr int kMaxStderrBytes = 16384;
+        m_stderrBuffer += data;
+        if (m_stderrBuffer.size() > kMaxStderrBytes) {
+            m_stderrBuffer = m_stderrBuffer.right(kMaxStderrBytes);
+        }
+    }
+
+    void drainStderr()
+    {
+        const QByteArray rest = m_process.readAllStandardError();
+        if (!rest.isEmpty()) {
+            appendStderr(rest);
+        }
+    }
+
+    QString formatErrorWithStderr(const QString &baseMessage)
+    {
+        drainStderr();
+        const QString stderrText = QString::fromUtf8(m_stderrBuffer).trimmed();
+        if (stderrText.isEmpty()) {
+            return baseMessage;
+        }
+        return QStringLiteral("%1：\n%2").arg(baseMessage, stderrText);
+    }
+
+    void consumeCompleteLines()
+    {
         int nl = 0;
         while ((nl = m_buffer.indexOf('\n')) >= 0) {
             const QByteArray line = m_buffer.left(nl).trimmed();
             m_buffer.remove(0, nl + 1);
-            if (line.isEmpty()) {
-                continue;
-            }
-            const QJsonDocument doc = QJsonDocument::fromJson(line);
-            if (!doc.isObject()) {
-                LOGW(LogCat::Tool) << "脚本输出非 JSON 行，忽略"
-                    << logf("tool", m_tool.spec.name)
-                    << QString::fromUtf8(line.left(200));
-                continue;
-            }
-            const QJsonObject obj = doc.object();
-            const QString type = obj.value(QStringLiteral("type")).toString();
-            if (type == QStringLiteral("result")) {
-                handleResult(obj);
-            } else if (type == QStringLiteral("event")) {
-                if (m_eventCallback) {
-                    m_eventCallback(obj);
-                }
-            } else {
-                LOGW(LogCat::Tool) << "脚本输出未知消息类型，忽略"
-                    << logf("tool", m_tool.spec.name)
-                    << logf("type", type);
+            if (!line.isEmpty()) {
+                handleJsonLine(line);
             }
         }
+    }
+
+    void handleJsonLine(const QByteArray &line)
+    {
+        const QJsonDocument doc = QJsonDocument::fromJson(line);
+        if (!doc.isObject()) {
+            LOGW(LogCat::Tool) << "脚本输出非 JSON 行，忽略"
+                << logf("tool", m_tool.spec.name)
+                << QString::fromUtf8(line.left(200));
+            return;
+        }
+        const QJsonObject obj = doc.object();
+        const QString type = obj.value(QStringLiteral("type")).toString();
+        if (type == QStringLiteral("result")) {
+            handleResult(obj);
+            return;
+        }
+        if (type == QStringLiteral("event")) {
+            if (m_eventCallback) {
+                m_eventCallback(obj);
+            }
+            return;
+        }
+        // sync：无 type 的一行 JSON 视为这次调用的结果。push 仍要信封。
+        if (type.isEmpty() && !m_tool.pushMode) {
+            handleResult(obj);
+            return;
+        }
+        failProtocolMismatch();
     }
 
     void handleResult(const QJsonObject &obj)
     {
         const QString reqId = obj.value(QStringLiteral("id")).toString();
-        const auto it = m_pending.find(reqId);
+        auto it = m_pending.find(reqId);
+        if (it == m_pending.end()
+            && reqId.isEmpty()
+            && !m_tool.pushMode
+            && m_pending.size() == 1) {
+            it = m_pending.begin();
+        }
         if (it == m_pending.end()) {
-            LOGW(LogCat::Tool) << "脚本返回未知请求 id，忽略"
-                << logf("tool", m_tool.spec.name)
-                << logf("id", reqId);
+            failProtocolMismatch();
             return;
         }
         PendingInvoke pending = it.value();
+        const QString matchedId = it.key();
         m_pending.erase(it);
-        if (QTimer *t = m_invokeTimers.take(reqId)) {
+        if (QTimer *t = m_invokeTimers.take(matchedId)) {
             t->deleteLater();
         }
 
@@ -242,8 +313,25 @@ private:
             tr.isError = true;
             tr.category = ToolResultCategory::Error;
             tr.text = obj.value(QStringLiteral("error")).toString();
+            if (tr.text.isEmpty()) {
+                tr.text = obj.value(QStringLiteral("text")).toString();
+            }
+            drainStderr();
+            const QString stderrText = QString::fromUtf8(m_stderrBuffer).trimmed();
+            if (!stderrText.isEmpty()) {
+                if (!tr.text.isEmpty()) {
+                    tr.text += QStringLiteral("：\n") + stderrText;
+                } else {
+                    tr.text = stderrText;
+                }
+            }
         }
         pending.callback(std::move(tr));
+    }
+
+    void failProtocolMismatch()
+    {
+        failPending(formatErrorWithStderr(QStringLiteral("需要 type=result 且带回请求 id")));
     }
 
     void failPending(const QString &reason)
@@ -271,6 +359,7 @@ private:
     QString m_runtimeCommand;
     QProcess m_process;
     QByteArray m_buffer;
+    QByteArray m_stderrBuffer;
     QHash<QString, PendingInvoke> m_pending;
     QHash<QString, QTimer *> m_invokeTimers;
     QTimer m_idleTimer;
@@ -314,9 +403,9 @@ void ScriptToolSource::resetSessionState()
     }
     m_processes.clear();
     m_subscribers.clear();
-    // 临时工具：注销并删文件（持久工具保留，重启扫描加载）
+    // 临时/会话工具：注销并删文件（项目级与全局级持久工具保留，重启扫描加载）
     for (auto it = m_tools.begin(); it != m_tools.end();) {
-        if (it->ephemeral) {
+        if (it->ephemeral || it->scope == QStringLiteral("session")) {
             QFile::remove(it->filePath);
             it = m_tools.erase(it);
         } else {
@@ -328,6 +417,17 @@ void ScriptToolSource::resetSessionState()
 void ScriptToolSource::setToolDirectory(const QString &dir)
 {
     m_toolDir = dir;
+    rescan();
+}
+
+void ScriptToolSource::setGlobalDirectory(const QString &dir)
+{
+    setToolDirectory(dir);
+}
+
+void ScriptToolSource::setProjectDirectory(const QString &dir)
+{
+    m_projectDir = dir;
     rescan();
 }
 
@@ -357,10 +457,18 @@ QList<ToolSpec> ScriptToolSource::specs() const
     QList<ToolSpec> out;
     out.append(createToolSpec());
     out.append(deleteToolSpec());
+    out.append(inspectToolSpec());
     QStringList names = m_tools.keys();
     names.sort();
     for (const QString &name : names) {
-        out.append(m_tools.value(name).spec);
+        ToolSpec spec = m_tools.value(name).spec;
+        const ScriptTool &tool = m_tools.value(name);
+        const QString modeStr = tool.pushMode ? QStringLiteral("push") : QStringLiteral("sync");
+        if (!spec.description.startsWith(QStringLiteral("[自建工具"))) {
+            spec.description = QStringLiteral("[自建工具 | 作用域: %1 | %2/%3] %4（可通过 inspect_tool 查看源码，create_tool 覆盖更新，delete_tool 删除）")
+                .arg(tool.scope, tool.language, modeStr, spec.description.trimmed());
+        }
+        out.append(spec);
     }
     return out;
 }
@@ -370,6 +478,7 @@ bool ScriptToolSource::owns(const QString &toolName) const
     const QString name = toolName.trimmed();
     return name == QStringLiteral("create_tool")
         || name == QStringLiteral("delete_tool")
+        || name == QStringLiteral("inspect_tool")
         || m_tools.contains(name);
 }
 
@@ -382,6 +491,10 @@ void ScriptToolSource::invoke(const ToolCall &call, const ToolInvokeContext &ctx
     }
     if (name == QStringLiteral("delete_tool")) {
         handleDeleteTool(call, ctx, std::move(done));
+        return;
+    }
+    if (name == QStringLiteral("inspect_tool")) {
+        handleInspectTool(call, ctx, std::move(done));
         return;
     }
     if (!m_tools.contains(name)) {
@@ -403,34 +516,49 @@ void ScriptToolSource::invoke(const ToolCall &call, const ToolInvokeContext &ctx
 ToolSpec ScriptToolSource::createToolSpec()
 {
     ToolSpecBuilder b(QStringLiteral("create_tool"),
-                      QStringLiteral("创建或更新一个脚本工具：写入脚本文件并注册，后续轮次即可调用。"),
+                      QStringLiteral("创建或覆盖更新自建脚本工具：写入脚本文件并注册，后续轮次即可调用。更新已有工具前建议先使用 inspect_tool 查看当前源码。"),
                       ToolPermissionKind::Write);
     b.requiredInput(QStringLiteral("name"), QStringLiteral("string"),
                     QStringLiteral("工具名（字母/数字/下划线，不能以数字开头）"));
     b.requiredInput(QStringLiteral("description"), QStringLiteral("string"),
                     QStringLiteral("工具描述（给模型的说明）"));
     b.requiredInput(QStringLiteral("code"), QStringLiteral("string"),
-                    QStringLiteral("脚本代码：从 stdin 读 JSON 行请求，向 stdout 写 JSON 行结果"));
+                    QStringLiteral("脚本代码。请求 JSON 包含 args（调用入参）与 workingDirectory（当前工作区路径；访问相对路径或工程文件时务必读取或切换至此路径）。"
+                                   "sync（缺省）：stdin 读一行 JSON 请求，stdout 写一行 JSON 结果即可"
+                                   "（推荐带 type=result 和请求 id；无 type 时视为这次调用的结果）。"
+                                   "push：长驻，请求 type=invoke，回复必须 type=result 且带回同一 id，事件 type=event"));
     b.input(QStringLiteral("language"), QStringLiteral("string"),
             QStringLiteral("py / js / ts，缺省 py"));
     b.input(QStringLiteral("mode"), QStringLiteral("string"),
-            QStringLiteral("sync（同步返回）/ push（常驻，事件异步推送），缺省 sync"));
+            QStringLiteral("sync（同步返回，一行结果即可）/ push（常驻，须用 invoke/result/event 信封），缺省 sync"));
+    b.input(QStringLiteral("scope"), QStringLiteral("string"),
+            QStringLiteral("作用域：project（项目级，存入当前工作区 .agent/tools，随工程持久；缺省）/ global（全局级，存入用户全局目录，所有工程共享）/ session（会话临时，会话结束自动销毁）"));
     b.input(QStringLiteral("input_schema"), QStringLiteral("object"),
             QStringLiteral("工具入参 JSON Schema"));
     b.input(QStringLiteral("ephemeral"), QStringLiteral("boolean"),
-            QStringLiteral("true=临时工具（会话结束删除），缺省 false"));
+            QStringLiteral("true=临时工具（等价于 scope=session），缺省 false（优先推荐使用 scope）"));
     return b.build();
 }
 
 ToolSpec ScriptToolSource::deleteToolSpec()
 {
     ToolSpecBuilder b(QStringLiteral("delete_tool"),
-                      QStringLiteral("删除或暂停一个脚本工具（暂停=保留文件但注销）。"),
+                      QStringLiteral("删除或暂停自建脚本工具（暂停=保留文件但注销）。可通过 inspect_tool 确认已有自建工具。"),
                       ToolPermissionKind::Write);
     b.requiredInput(QStringLiteral("name"), QStringLiteral("string"),
                     QStringLiteral("要删除的脚本工具名"));
     b.input(QStringLiteral("keep_file"), QStringLiteral("boolean"),
             QStringLiteral("true=只注销不删文件（暂停），缺省 false"));
+    return b.build();
+}
+
+ToolSpec ScriptToolSource::inspectToolSpec()
+{
+    ToolSpecBuilder b(QStringLiteral("inspect_tool"),
+                      QStringLiteral("检视自建脚本工具：查看自建工具清单或读取指定工具的完整源码，以便评估逻辑或进行修改改造。"),
+                      ToolPermissionKind::ReadOnly);
+    b.input(QStringLiteral("name"), QStringLiteral("string"),
+            QStringLiteral("要查看的自建工具名。留空则列出当前所有自建工具的摘要清单。"));
     return b.build();
 }
 
@@ -443,6 +571,7 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     const QString code = in.value(QStringLiteral("code")).toString();
     QString language = in.value(QStringLiteral("language")).toString().trimmed();
     QString mode = in.value(QStringLiteral("mode")).toString().trimmed();
+    QString scope = in.value(QStringLiteral("scope")).toString().trimmed().toLower();
     const bool ephemeral = in.value(QStringLiteral("ephemeral")).toBool(false);
     const QJsonObject inputSchema = in.value(QStringLiteral("input_schema")).toObject();
 
@@ -453,7 +582,9 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
                          call.id));
         return;
     }
-    if (name == QStringLiteral("create_tool") || name == QStringLiteral("delete_tool")) {
+    if (name == QStringLiteral("create_tool")
+        || name == QStringLiteral("delete_tool")
+        || name == QStringLiteral("inspect_tool")) {
         done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name), call.id));
         return;
     }
@@ -478,16 +609,41 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
         done(errorResult(call.toolName, QStringLiteral("mode 仅支持 sync/push：%1").arg(mode), call.id));
         return;
     }
-    const QString baseDir = ephemeral ? m_ephemeralDir : m_toolDir;
-    if (baseDir.isEmpty()) {
+    if (scope.isEmpty()) {
+        scope = ephemeral ? QStringLiteral("session") : QStringLiteral("project");
+    }
+    if (scope != QStringLiteral("project")
+        && scope != QStringLiteral("global")
+        && scope != QStringLiteral("session")) {
         done(errorResult(call.toolName,
-                         ephemeral ? QStringLiteral("临时工具目录未配置")
-                                   : QStringLiteral("工具目录未配置"),
+                         QStringLiteral("scope 仅支持 project/global/session：%1").arg(scope),
                          call.id));
         return;
     }
 
-    // 同名更新：旧文件（可能在其他 agent 子目录）先移除，新文件归当前调用者
+    QString baseDir;
+    if (scope == QStringLiteral("session")) {
+        baseDir = m_ephemeralDir;
+    } else if (scope == QStringLiteral("global")) {
+        baseDir = m_toolDir;
+    } else { // project
+        if (m_projectDir.isEmpty() && !ctx.workingDirectory.isEmpty()) {
+            m_projectDir = QDir(ctx.workingDirectory).filePath(QStringLiteral(".agent/tools"));
+        }
+        baseDir = m_projectDir;
+        if (baseDir.isEmpty()) {
+            baseDir = m_toolDir;
+            scope = QStringLiteral("global");
+        }
+    }
+    if (baseDir.isEmpty()) {
+        done(errorResult(call.toolName,
+                         QStringLiteral("存储目录未配置（scope=%1）").arg(scope),
+                         call.id));
+        return;
+    }
+
+    // 同名更新：旧文件（可能在其他 agent 子目录或旧路径）先移除，新文件归当前调用者
     const QString newPath = baseDir + QLatin1Char('/') + ctx.agentId
         + QLatin1Char('/') + name + QLatin1Char('.') + language;
     if (m_tools.contains(name) && m_tools.value(name).filePath != newPath) {
@@ -508,20 +664,24 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     QJsonObject manifest;
     manifest.insert(QStringLiteral("name"), name);
     manifest.insert(QStringLiteral("description"), description);
+    manifest.insert(QStringLiteral("language"), language);
     manifest.insert(QStringLiteral("mode"), mode);
+    manifest.insert(QStringLiteral("scope"), scope);
     manifest.insert(QStringLiteral("input_schema"), inputSchema);
-    manifest.insert(QStringLiteral("ephemeral"), ephemeral);
+    manifest.insert(QStringLiteral("ephemeral"), (scope == QStringLiteral("session")));
     const QByteArray comment = language == QStringLiteral("py") ? "# " : "// ";
     file.write(comment + "@tool "
                + QJsonDocument(manifest).toJson(QJsonDocument::Compact) + "\n");
     file.write(code.toUtf8());
     file.close();
 
+    // 同名更新必须换进程：ScriptProcess 里还是旧脚本映像。
+    dropProcess(name, QStringLiteral("工具已更新：%1").arg(name));
     rescan();
     emit toolsChanged();
     done(okResult(call.toolName,
-                  QStringLiteral("工具已创建：%1（%2，%3）")
-                      .arg(name, language, mode),
+                  QStringLiteral("工具已创建：%1（%2，%3，作用域：%4）")
+                      .arg(name, language, mode, scope),
                   call.id));
 }
 
@@ -530,7 +690,9 @@ void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeCo
 {
     const QString name = call.input.value(QStringLiteral("name")).toString().trimmed();
     const bool keepFile = call.input.value(QStringLiteral("keep_file")).toBool(false);
-    if (name == QStringLiteral("create_tool") || name == QStringLiteral("delete_tool")) {
+    if (name == QStringLiteral("create_tool")
+        || name == QStringLiteral("delete_tool")
+        || name == QStringLiteral("inspect_tool")) {
         done(errorResult(call.toolName, QStringLiteral("工具名是保留名：%1").arg(name), call.id));
         return;
     }
@@ -539,11 +701,7 @@ void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeCo
         return;
     }
     const ScriptTool tool = m_tools.value(name);
-    if (ScriptProcess *proc = m_processes.take(name)) {
-        proc->failAllPending(QStringLiteral("工具已删除：%1").arg(name));
-        proc->stop();
-        proc->deleteLater();
-    }
+    dropProcess(name, QStringLiteral("工具已删除：%1").arg(name));
     m_tools.remove(name);
     m_subscribers.remove(name);
     if (!keepFile) {
@@ -556,16 +714,130 @@ void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeCo
                   call.id));
 }
 
+void ScriptToolSource::handleInspectTool(const ToolCall &call, const ToolInvokeContext &ctx,
+                                         Completion done)
+{
+    Q_UNUSED(ctx);
+    const QString name = call.input.value(QStringLiteral("name")).toString().trimmed();
+    if (name.isEmpty()) {
+        QStringList names = m_tools.keys();
+        names.sort();
+        if (names.isEmpty()) {
+            done(okResult(call.toolName, QStringLiteral("当前没有任何自建工具。可通过 create_tool 创建。"), call.id));
+            return;
+        }
+        QJsonArray list;
+        QStringList textLines;
+        textLines << QStringLiteral("### 当前已注册的自建脚本工具（共 %1 个）：").arg(names.size());
+        for (const QString &tName : names) {
+            const ScriptTool &tool = m_tools.value(tName);
+            const QString modeStr = tool.pushMode ? QStringLiteral("push") : QStringLiteral("sync");
+            QJsonObject item;
+            item.insert(QStringLiteral("name"), tName);
+            item.insert(QStringLiteral("language"), tool.language);
+            item.insert(QStringLiteral("mode"), modeStr);
+            item.insert(QStringLiteral("ephemeral"), tool.ephemeral);
+            item.insert(QStringLiteral("description"), tool.spec.description);
+            list.append(item);
+
+            textLines << QStringLiteral("- **%1** (作用域: %2, %3, %4%5): %6")
+                             .arg(tName, tool.scope, tool.language, modeStr,
+                                  tool.ephemeral ? QStringLiteral(", 临时") : QString(),
+                                  tool.spec.description);
+        }
+        textLines << QString();
+        textLines << QStringLiteral("提示：调用 inspect_tool(name=\"工具名\") 可查看其完整源码；修改后使用 create_tool 同名覆盖更新。");
+        ToolResult tr = okResult(call.toolName, textLines.join(QLatin1Char('\n')), call.id);
+        tr.payload = QJsonObject{{QStringLiteral("tools"), list}};
+        done(std::move(tr));
+        return;
+    }
+
+    if (name == QStringLiteral("create_tool")
+        || name == QStringLiteral("delete_tool")
+        || name == QStringLiteral("inspect_tool")) {
+        done(errorResult(call.toolName,
+                         QStringLiteral("“%1” 是系统元工具，不是自建脚本工具，不可通过 inspect_tool 查看。").arg(name),
+                         call.id));
+        return;
+    }
+
+    if (!m_tools.contains(name)) {
+        done(errorResult(call.toolName,
+                         QStringLiteral("自建工具不存在：%1。可通过 inspect_tool() 查看所有已有自建工具。").arg(name),
+                         call.id));
+        return;
+    }
+
+    const ScriptTool tool = m_tools.value(name);
+    QFile file(tool.filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        done(errorResult(call.toolName,
+                         QStringLiteral("无法读取自建工具文件：%1").arg(tool.filePath),
+                         call.id));
+        return;
+    }
+    const QByteArray content = file.readAll();
+    file.close();
+
+    // 提取纯代码（剥离第 1 行的 @tool manifest）
+    const int firstNewline = content.indexOf('\n');
+    const QString code = (firstNewline >= 0)
+        ? QString::fromUtf8(content.mid(firstNewline + 1))
+        : QString::fromUtf8(content);
+
+    const QString modeStr = tool.pushMode ? QStringLiteral("push") : QStringLiteral("sync");
+    QString scopeDesc;
+    if (tool.scope == QStringLiteral("project")) {
+        scopeDesc = QStringLiteral("项目级（project，存放于当前工作区，仅当前工程有效，可随代码库提交）");
+    } else if (tool.scope == QStringLiteral("global")) {
+        scopeDesc = QStringLiteral("全局级（global，存放于用户全局目录，所有工程共享，修改将影响全局）");
+    } else {
+        scopeDesc = QStringLiteral("会话级（session，存放于临时目录，会话结束自动清理）");
+    }
+
+    QStringList lines;
+    lines << QStringLiteral("### 自建工具: %1").arg(name);
+    lines << QStringLiteral("- **作用域**: %1").arg(scopeDesc);
+    lines << QStringLiteral("- **存储路径**: `%1`").arg(tool.filePath);
+    lines << QStringLiteral("- **语言**: %1 | **模式**: %2").arg(tool.language, modeStr);
+    lines << QStringLiteral("- **功能说明**: %1").arg(tool.spec.description);
+    if (!tool.spec.inputSchema.isEmpty()) {
+        lines << QStringLiteral("- **入参规范 (input_schema)**: `%1`")
+                     .arg(QString::fromUtf8(QJsonDocument(tool.spec.inputSchema).toJson(QJsonDocument::Compact)));
+    }
+    lines << QStringLiteral("- **当前源码**:");
+    lines << QStringLiteral("```%1\n%2\n```").arg(tool.language, code.trimmed());
+    lines << QStringLiteral("- **修改指引**: 在上述代码基础上修改后，调用 `create_tool(name=\"%1\", code=\"<修改后的代码>\", description=\"%2\", language=\"%3\", mode=\"%4\", scope=\"%5\")` 即可完成热更新。")
+                 .arg(name, tool.spec.description, tool.language, modeStr, tool.scope);
+
+    ToolResult tr = okResult(call.toolName, lines.join(QLatin1Char('\n')), call.id);
+    QJsonObject payload;
+    payload.insert(QStringLiteral("name"), name);
+    payload.insert(QStringLiteral("scope"), tool.scope);
+    payload.insert(QStringLiteral("filePath"), tool.filePath);
+    payload.insert(QStringLiteral("language"), tool.language);
+    payload.insert(QStringLiteral("mode"), modeStr);
+    payload.insert(QStringLiteral("ephemeral"), tool.ephemeral);
+    payload.insert(QStringLiteral("description"), tool.spec.description);
+    payload.insert(QStringLiteral("input_schema"), tool.spec.inputSchema);
+    payload.insert(QStringLiteral("code"), code);
+    tr.payload = payload;
+    done(std::move(tr));
+}
+
 // ── 目录扫描 ──
 
 void ScriptToolSource::rescan()
 {
     m_tools.clear();
-    scanDir(m_toolDir);
-    scanDir(m_ephemeralDir);
+    // 优先级：session > project > global
+    scanDir(m_ephemeralDir, QStringLiteral("session"));
+    scanDir(m_projectDir, QStringLiteral("project"));
+    scanDir(m_toolDir, QStringLiteral("global"));
 }
 
-void ScriptToolSource::scanDir(const QString &dir)
+void ScriptToolSource::scanDir(const QString &dir, const QString &defaultScope)
 {
     if (dir.isEmpty()) {
         return;
@@ -596,6 +868,12 @@ void ScriptToolSource::scanDir(const QString &dir)
         if (name.isEmpty() || m_tools.contains(name)) {
             continue;
         }
+        QString scope = manifest.value(QStringLiteral("scope")).toString().trimmed();
+        if (scope.isEmpty()) {
+            scope = manifest.value(QStringLiteral("ephemeral")).toBool(false)
+                ? QStringLiteral("session")
+                : defaultScope;
+        }
         ScriptTool tool;
         tool.spec.name = name;
         tool.spec.description = manifest.value(QStringLiteral("description")).toString();
@@ -603,7 +881,8 @@ void ScriptToolSource::scanDir(const QString &dir)
         tool.spec.permissionKind = ToolPermissionKind::Write;
         tool.filePath = filePath;
         tool.language = ext;
-        tool.ephemeral = (dir == m_ephemeralDir);
+        tool.scope = scope;
+        tool.ephemeral = (scope == QStringLiteral("session"));
         tool.pushMode = manifest.value(QStringLiteral("mode")).toString() == QStringLiteral("push");
         m_tools.insert(name, tool);
     }
@@ -636,6 +915,15 @@ QJsonObject ScriptToolSource::parseManifest(const QByteArray &head)
 }
 
 // ── 进程与事件 ──
+
+void ScriptToolSource::dropProcess(const QString &name, const QString &reason)
+{
+    if (ScriptProcess *proc = m_processes.take(name)) {
+        proc->failAllPending(reason);
+        proc->stop();
+        proc->deleteLater();
+    }
+}
 
 ScriptToolSource::ScriptProcess *ScriptToolSource::processFor(const QString &toolName)
 {

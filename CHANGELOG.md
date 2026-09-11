@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+### 🟢 新增功能
+
+- **`inspect_tool` 元工具**：`ScriptToolSource` 新增只读元工具 `inspect_tool`。支持留空列出所有自建工具概要，或指定名称提取纯源码、入参 Schema 与更新指引，实现自建工具增删改查闭环。
+- **自建工具作用域（`scope`）**：`create_tool` 支持 `project`（项目级，存入当前工作区 `.agent/tools/`，缺省）、`global`（全局级，存入用户主目录）、`session`（会话级临时，会话结束自动清理）。支持按 `session > project > global` 优先级就近遮蔽，并在工具清单中自动打标透传给模型。
+- **角色块自定义正文槽（#34）**：`SystemPromptBuilder` 增加 `setRoleCustomPrompt` / `roleCustomPrompt`，宿主角色卡正文直接追加在角色模板后，不占用第④段用户槽 `AGENT.md`。
+
+### 🔵 修复
+
+- **#33 脚本工具协议与容错**：`ScriptToolSource` sync 脚本返回无 `type` 的裸 JSON 视为调用结果；退出前补收 stdout 剩余半行；信封不匹配立即报错；`create_tool` 描述明确信封要求与 `workingDirectory` 说明。
+- **同名覆盖更新重拉进程**：`create_tool` 同名更新时主动终结并清理旧进程，下次调用即刻执行新代码。
+- **调用超时精准回调**：`ScriptProcess` 超时回调精准通知该次调用，不再因移除待处理项导致回调丢失挂起整轮。
+- **错误透传 Traceback**：脚本异常退出或出错时，提取 `stderr` 尾部堆栈回传给模型，支持模型自主排查与自愈。
+
 ## [0.6.1] - 2026-09-07
 
 ### 🔵 修复

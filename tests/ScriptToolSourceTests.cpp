@@ -100,6 +100,17 @@ private slots:
     void sessionClear_killsProcessesAndDropsEphemeral();
     void coordinator_removeSourceAndOwner();
     void metaTools_fillToolUseId();
+    void createTool_codeDescriptionDocumentsEnvelope();
+    void syncInvoke_bareJsonOneShot();
+    void syncInvoke_bareJsonWithoutNewline();
+    void syncInvoke_unknownTypeFailsImmediately();
+    void pushInvoke_bareJsonRequiresEnvelope();
+    void createTool_updateRestartsProcess();
+    void syncInvoke_timeoutFailsThisCall();
+    void syncInvoke_crashIncludesStderrTraceback();
+    void syncInvoke_receivesWorkingDirectory();
+    void inspectTool_listAndInspectSource();
+    void scope_projectGlobalSession();
 };
 
 void ScriptToolSourceTests::scan_persistentAndEphemeral()
@@ -140,6 +151,7 @@ void ScriptToolSourceTests::scan_persistentAndEphemeral()
         const QList<ToolSpec> specs = source.specs();
         QCOMPARE(specCount(specs, QStringLiteral("create_tool")), 1);
         QCOMPARE(specCount(specs, QStringLiteral("delete_tool")), 1);
+        QCOMPARE(specCount(specs, QStringLiteral("inspect_tool")), 1);
         QCOMPARE(specCount(specs, QStringLiteral("hello")), 1);
         QCOMPARE(specCount(specs, QStringLiteral("tmp")), 1);
         // 扫描工具默认 Write 权限（任意代码）
@@ -202,6 +214,12 @@ void ScriptToolSourceTests::createTool_validation()
     // 保留名
     r = invokeSync(source, QStringLiteral("create_tool"), {
         {QStringLiteral("name"), QStringLiteral("create_tool")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), QStringLiteral("x")},
+    }, ctx);
+    QVERIFY(r.isError);
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("inspect_tool")},
         {QStringLiteral("description"), QStringLiteral("d")},
         {QStringLiteral("code"), QStringLiteral("x")},
     }, ctx);
@@ -314,6 +332,10 @@ void ScriptToolSourceTests::deleteTool_removesAndPauses()
     // 保留名不可删
     r = invokeSync(source, QStringLiteral("delete_tool"), {
         {QStringLiteral("name"), QStringLiteral("create_tool")},
+    }, ctx);
+    QVERIFY(r.isError);
+    r = invokeSync(source, QStringLiteral("delete_tool"), {
+        {QStringLiteral("name"), QStringLiteral("inspect_tool")},
     }, ctx);
     QVERIFY(r.isError);
 }
@@ -628,6 +650,495 @@ void ScriptToolSourceTests::metaTools_fillToolUseId()
     QVERIFY(done);
     QVERIFY(dispatched.success);
     QCOMPARE(dispatched.toolUseId, call.id);
+}
+
+void ScriptToolSourceTests::createTool_codeDescriptionDocumentsEnvelope()
+{
+    ScriptToolSource source;
+    QString codeDesc;
+    QString modeDesc;
+    for (const ToolSpec &spec : source.specs()) {
+        if (spec.name != QStringLiteral("create_tool")) {
+            continue;
+        }
+        const QJsonObject props = spec.inputSchema.value(QStringLiteral("properties")).toObject();
+        codeDesc = props.value(QStringLiteral("code")).toObject()
+                       .value(QStringLiteral("description")).toString();
+        modeDesc = props.value(QStringLiteral("mode")).toObject()
+                       .value(QStringLiteral("description")).toString();
+    }
+    QVERIFY(codeDesc.contains(QStringLiteral("无 type")));
+    QVERIFY(codeDesc.contains(QStringLiteral("type=result")));
+    QVERIFY(codeDesc.contains(QStringLiteral("push")));
+    QVERIFY(codeDesc.contains(QStringLiteral("workingDirectory")));
+    QVERIFY(modeDesc.contains(QStringLiteral("信封")));
+}
+
+void ScriptToolSourceTests::syncInvoke_bareJsonOneShot()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过裸 JSON 同步调用测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "req = json.loads(sys.stdin.readline())\n"
+        "who = (req.get(\"args\") or {}).get(\"who\", \"\")\n"
+        "print(json.dumps({\"ok\": True, \"text\": \"bare:\" + str(who)}), flush=True)\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("stats")},
+        {QStringLiteral("description"), QStringLiteral("一次性")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("stats"), {
+        {QStringLiteral("who"), QStringLiteral("world")},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(!r.isError);
+    QCOMPARE(r.text, QStringLiteral("bare:world"));
+    QVERIFY(!r.text.contains(QStringLiteral("脚本进程退出")));
+}
+
+void ScriptToolSourceTests::syncInvoke_bareJsonWithoutNewline()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过无换行裸 JSON 测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "req = json.loads(sys.stdin.readline())\n"
+        "who = (req.get(\"args\") or {}).get(\"who\", \"\")\n"
+        "sys.stdout.write(json.dumps({\"ok\": True, \"text\": \"nl:\" + str(who)}))\n"
+        "sys.stdout.flush()\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("noline")},
+        {QStringLiteral("description"), QStringLiteral("无换行")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("noline"), {
+        {QStringLiteral("who"), QStringLiteral("x")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.text, QStringLiteral("nl:x"));
+}
+
+void ScriptToolSourceTests::syncInvoke_unknownTypeFailsImmediately()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过协议错误测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "req = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({\"type\": \"nope\", \"id\": req.get(\"id\"), \"ok\": True, \"text\": \"x\"}), flush=True)\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("badtype")},
+        {QStringLiteral("description"), QStringLiteral("错类型")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("badtype"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("需要 type=result 且带回请求 id")));
+    QVERIFY(!r.text.contains(QStringLiteral("脚本进程退出")));
+}
+
+void ScriptToolSourceTests::pushInvoke_bareJsonRequiresEnvelope()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过 push 信封测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "req = json.loads(sys.stdin.readline())\n"
+        "print(json.dumps({\"ok\": True, \"text\": \"bare\"}), flush=True)\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("pushbare")},
+        {QStringLiteral("description"), QStringLiteral("push 裸 JSON")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("mode"), QStringLiteral("push")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("pushbare"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("需要 type=result 且带回请求 id")));
+}
+
+void ScriptToolSourceTests::createTool_updateRestartsProcess()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过更新重启进程测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString loopCode = QStringLiteral(
+        "import sys, json\n"
+        "for line in sys.stdin:\n"
+        "    req = json.loads(line)\n"
+        "    if req.get(\"type\") == \"invoke\":\n"
+        "        out = {\"type\": \"result\", \"id\": req[\"id\"], \"ok\": True, \"text\": \"%1\"}\n"
+        "        sys.stdout.write(json.dumps(out) + \"\\n\")\n"
+        "        sys.stdout.flush()\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("echo")},
+        {QStringLiteral("description"), QStringLiteral("v1")},
+        {QStringLiteral("code"), loopCode.arg(QStringLiteral("v1"))},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+    r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.text, QStringLiteral("v1"));
+    QCOMPARE(source.processCount(), 1);
+
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("echo")},
+        {QStringLiteral("description"), QStringLiteral("v2")},
+        {QStringLiteral("code"), loopCode.arg(QStringLiteral("v2"))},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(source.processCount(), 0);
+
+    r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.text, QStringLiteral("v2"));
+}
+
+void ScriptToolSourceTests::syncInvoke_timeoutFailsThisCall()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过超时回调测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(400);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys, time\n"
+        "sys.stdin.readline()\n"
+        "time.sleep(30)\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("hang")},
+        {QStringLiteral("description"), QStringLiteral("挂起")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("hang"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("脚本工具调用超时")));
+}
+
+void ScriptToolSourceTests::syncInvoke_crashIncludesStderrTraceback()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过崩溃 Traceback 捕获测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "import sys\n"
+        "sys.stdin.readline()\n"
+        "raise RuntimeError(\"custom_crash_traceback_marker\")\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("crash_tool")},
+        {QStringLiteral("description"), QStringLiteral("故意抛异常")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("crash_tool"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("脚本进程退出")));
+    QVERIFY(r.text.contains(QStringLiteral("RuntimeError")));
+    QVERIFY(r.text.contains(QStringLiteral("custom_crash_traceback_marker")));
+}
+
+void ScriptToolSourceTests::syncInvoke_receivesWorkingDirectory()
+{
+    const QString python = findPython();
+    if (python.isEmpty()) {
+        QSKIP("未找到 python 运行时，跳过 workingDirectory 传递测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("py"), python);
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path() + QStringLiteral("/my_workspace");
+
+    const QString code = QStringLiteral(
+        "import sys, json\n"
+        "req = json.loads(sys.stdin.readline())\n"
+        "cwd = req.get(\"workingDirectory\", \"\")\n"
+        "print(json.dumps({\"ok\": True, \"text\": \"cwd:\" + cwd}), flush=True)\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("cwd_tool")},
+        {QStringLiteral("description"), QStringLiteral("回显工作区")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    r = invokeSync(source, QStringLiteral("cwd_tool"), QJsonObject{}, ctx);
+    QVERIFY(r.success);
+    QVERIFY(r.text.contains(QStringLiteral("cwd:")));
+    QVERIFY(r.text.contains(QStringLiteral("my_workspace")));
+}
+
+void ScriptToolSourceTests::inspectTool_listAndInspectSource()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    // 1. 空状态：无工具
+    ToolResult r = invokeSync(source, QStringLiteral("inspect_tool"), QJsonObject{}, ctx);
+    QVERIFY(r.success);
+    QVERIFY(r.text.contains(QStringLiteral("没有任何自建工具")));
+
+    // 2. 创建一个工具
+    const QString sampleCode = QStringLiteral("import sys\nprint('custom code 123')\n");
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("calc")},
+        {QStringLiteral("description"), QStringLiteral("计算器工具")},
+        {QStringLiteral("code"), sampleCode},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    // 3. 查清单（空 name）
+    r = invokeSync(source, QStringLiteral("inspect_tool"), QJsonObject{}, ctx);
+    QVERIFY(r.success);
+    QVERIFY(r.text.contains(QStringLiteral("calc")));
+    QVERIFY(r.text.contains(QStringLiteral("计算器工具")));
+    QVERIFY(r.payload.value(QStringLiteral("tools")).toArray().size() == 1);
+
+    // 4. 查具体工具源码（带 name="calc"）
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("calc")},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(r.text.contains(QStringLiteral("print('custom code 123')")));
+    QVERIFY(r.text.contains(QStringLiteral("create_tool"))); // 包含修改指引
+    QCOMPARE(r.payload.value(QStringLiteral("name")).toString(), QStringLiteral("calc"));
+    QCOMPARE(r.payload.value(QStringLiteral("scope")).toString(), QStringLiteral("project"));
+    QCOMPARE(r.payload.value(QStringLiteral("language")).toString(), QStringLiteral("py"));
+    QCOMPARE(r.payload.value(QStringLiteral("code")).toString().trimmed(), sampleCode.trimmed());
+
+    // 5. 查不存在的工具
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ghost")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("不存在")));
+
+    // 6. 查元工具（非自建工具）
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("create_tool")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("系统元工具")));
+
+    // 7. 验证 specs 中自建工具的 description 自动注入标识
+    const QList<ToolSpec> specs = source.specs();
+    bool foundCalc = false;
+    for (const ToolSpec &spec : specs) {
+        if (spec.name == QStringLiteral("calc")) {
+            foundCalc = true;
+            QVERIFY(spec.description.contains(QStringLiteral("[自建工具 | 作用域: project | py/sync]")));
+            QVERIFY(spec.description.contains(QStringLiteral("inspect_tool")));
+        }
+    }
+    QVERIFY(foundCalc);
+}
+
+void ScriptToolSourceTests::scope_projectGlobalSession()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString globalDir = tmp.path() + QStringLiteral("/global_tools");
+    const QString projectDir = tmp.path() + QStringLiteral("/my_project/.agent/tools");
+    const QString ephDir = tmp.path() + QStringLiteral("/ephemeral_tools");
+
+    ScriptToolSource source;
+    source.setGlobalDirectory(globalDir);
+    source.setProjectDirectory(projectDir);
+    source.setEphemeralDirectory(ephDir);
+
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path() + QStringLiteral("/my_project");
+
+    // 1. 创建全局工具
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_g")},
+        {QStringLiteral("description"), QStringLiteral("全局工具")},
+        {QStringLiteral("code"), QStringLiteral("print('g')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("scope"), QStringLiteral("global")},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(QFile::exists(globalDir + QStringLiteral("/agent-0/tool_g.py")));
+
+    // 2. 创建项目工具
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_p")},
+        {QStringLiteral("description"), QStringLiteral("项目工具")},
+        {QStringLiteral("code"), QStringLiteral("print('p')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("scope"), QStringLiteral("project")},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(QFile::exists(projectDir + QStringLiteral("/agent-0/tool_p.py")));
+
+    // 3. 创建临时/会话工具
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_s")},
+        {QStringLiteral("description"), QStringLiteral("会话工具")},
+        {QStringLiteral("code"), QStringLiteral("print('s')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("scope"), QStringLiteral("session")},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(QFile::exists(ephDir + QStringLiteral("/agent-0/tool_s.py")));
+
+    // 4. inspect_tool 验证作用域信息透传
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_g")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.payload.value(QStringLiteral("scope")).toString(), QStringLiteral("global"));
+    QVERIFY(r.text.contains(QStringLiteral("全局级")));
+
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_p")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.payload.value(QStringLiteral("scope")).toString(), QStringLiteral("project"));
+    QVERIFY(r.text.contains(QStringLiteral("项目级")));
+
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tool_s")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.payload.value(QStringLiteral("scope")).toString(), QStringLiteral("session"));
+    QVERIFY(r.text.contains(QStringLiteral("会话级")));
+
+    // 5. 优先级遮蔽：创建同名全局工具与项目工具
+    invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("override_tool")},
+        {QStringLiteral("description"), QStringLiteral("全局版本")},
+        {QStringLiteral("code"), QStringLiteral("print('global_ver')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("scope"), QStringLiteral("global")},
+    }, ctx);
+
+    // 再建项目同名工具，应当遮蔽全局版本
+    invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("override_tool")},
+        {QStringLiteral("description"), QStringLiteral("项目版本")},
+        {QStringLiteral("code"), QStringLiteral("print('project_ver')")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("scope"), QStringLiteral("project")},
+    }, ctx);
+
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("override_tool")},
+    }, ctx);
+    QVERIFY(r.success);
+    QCOMPARE(r.payload.value(QStringLiteral("scope")).toString(), QStringLiteral("project"));
+    QVERIFY(r.text.contains(QStringLiteral("project_ver")));
+
+    // 6. 会话清空：临时工具被删除，全局和项目工具保留
+    source.sessionCleared();
+    QVERIFY(!source.hasTool(QStringLiteral("tool_s")));
+    QVERIFY(!QFile::exists(ephDir + QStringLiteral("/agent-0/tool_s.py")));
+    QVERIFY(source.hasTool(QStringLiteral("tool_g")));
+    QVERIFY(source.hasTool(QStringLiteral("tool_p")));
+    QVERIFY(QFile::exists(globalDir + QStringLiteral("/agent-0/tool_g.py")));
+    QVERIFY(QFile::exists(projectDir + QStringLiteral("/agent-0/tool_p.py")));
 }
 
 QTEST_MAIN(ScriptToolSourceTests)
