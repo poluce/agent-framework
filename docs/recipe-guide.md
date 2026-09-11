@@ -73,7 +73,7 @@ session.start();
 | `primaryUnit()` / `isPrimary(unit)` | 第一个登记的单元 | 快照、改标题、宿主选中回落 |
 | `toolVisible(unit, sourceId, toolName)` | 全可见 | 按单元裁剪工具（含 MCP 工具） |
 | `skillVisible(unit, skillName)` | 全可见 | 按单元裁剪技能（skillName = 技能目录名） |
-| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/`（角色模板由宿主/配方提供） |
+| `rolePromptFile(unit)` | 空=不拼角色块 | 只返回 **basename**（如 `role.md`），禁止路径分隔符；解析根 = `:/system_prompts/`（qrc）+ `<可执行目录>/system_prompts/`（角色模板由宿主/配方提供）。宿主角色卡正文走 `SystemPromptBuilder::setRoleCustomPrompt`，追加在模板后，不进 user 槽 |
 | `ownsSessionTitle(unit)` | false | 该单元空闲时是否跑 AutoRename |
 | `usesSegmentSummary(unit)` | false | 是否安装段摘要队列 |
 | `remainsIdleAfterTurn(unit)` | true | Completed 后是否回到 Idle（子单元常为 false） |
@@ -289,28 +289,34 @@ scriptSource->setRuntimeCommand("py", "python3");         // 缺省 python3/node
 cfg.externalToolSource = scriptSource;                    // 会话级注入（同 MCP）
 ```
 
-### 8.2 元工具：create_tool / delete_tool
+### 8.2 元工具：create_tool / delete_tool / inspect_tool
 
-agent 用 `create_tool` 自加工具（写文件 + 注册，下一轮即可调用）：
+agent 用一套元工具管理自建工具（增删改查闭环）：
+
+| 元工具 | 说明 |
+|------|------|
+| `create_tool` | 创建或覆盖更新自建工具（写文件 + 注册，下一轮即可调用）。同名覆盖时旧进程自动退出重拉。 |
+| `inspect_tool` | 检视自建工具：留空列出所有自建工具概要；传 `name` 提取当前完整源码与入参 Schema，用于改造升级。 |
+| `delete_tool` | 删除（注销 + 删文件）或暂停（`keep_file=true` 只注销）。 |
+
+`create_tool` 入参：
 
 | 参数 | 说明 |
 |------|------|
 | `name` | 工具名（字母/数字/下划线，不能以数字开头） |
-| `description` | 给模型的描述 |
+| `description` | 给模型的描述（注册后自动附带 `[自建工具]` 标记与维护提示） |
 | `code` | 脚本代码（协议见 8.3） |
 | `language` | py / js / ts，缺省 py |
 | `mode` | sync（同步返回）/ push（常驻 + 事件推送），缺省 sync |
 | `input_schema` | 工具入参 JSON Schema |
 | `ephemeral` | true = 临时工具（会话结束删除），缺省 false |
 
-`delete_tool(name, keep_file)`：删除（注销 + 删文件）或暂停（`keep_file=true` 只注销）。同名 `create_tool` = 更新（覆盖旧文件）。
-
 ### 8.3 脚本协议（JSON 行，stdin/stdout）
 
-脚本从 stdin 读请求，向 stdout 写结果（**stdout 只允许协议行**，调试输出走 stderr）：
+脚本从 stdin 读请求，向 stdout 写结果（**stdout 只允许协议行**，调试输出走 stderr；访问工程文件读取 `workingDirectory`）：
 
 ```json
-{"type":"invoke","id":"<reqId>","callId":"<callId>","tool":"<name>","args":{...}}
+{"type":"invoke","id":"<reqId>","callId":"<callId>","tool":"<name>","args":{...},"workingDirectory":"<当前工作区>"}
 {"type":"result","id":"<reqId>","ok":true,"text":"...","structured":{...}}
 {"type":"result","id":"<reqId>","ok":false,"error":"..."}
 ```

@@ -42,6 +42,10 @@ public:
     QString baseBehavior() const { return m_baseBehavior; }
     QString userCustomPrompt() const { return m_userCustomPrompt; }
 
+    /// 角色块自定义正文。空 = 不加。追加在 `rolePromptFile` 模板之后，不进 user 槽。
+    void setRoleCustomPrompt(const QString &text);
+    QString roleCustomPrompt() const { return m_roleCustomPrompt; }
+
     // Skill 列表提示（注入到系统提示，模型无需调 skill_list() 即可感知可用 skill）
     void setAvailableSkills(const QString &skillsBlock);
     QString availableSkills() const { return m_availableSkills; }
@@ -86,6 +90,7 @@ private:
     // 数据源
     QString m_baseBehavior;
     QString m_userCustomPrompt;
+    QString m_roleCustomPrompt;
     QString m_availableSkills;
     // 稳定段缓存
     mutable QString m_cachedEnvBlock;
