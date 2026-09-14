@@ -631,9 +631,12 @@ ToolSpec ScriptToolSource::createToolSpec()
                     QStringLiteral("工具描述（给模型的说明）"));
     b.requiredInput(QStringLiteral("code"), QStringLiteral("string"),
                     QStringLiteral("脚本代码。请求 JSON 包含 args（调用入参）与 workingDirectory（当前工作区路径；访问相对路径或工程文件时务必读取或切换至此路径）。"
+                                   "sync（缺省）：stdin 读一行 JSON 请求，stdout 写一行 JSON 结果即可"
+                                   "（推荐带 type=result 和请求 id；无 type 时视为这次调用的结果）。"
+                                   "push：长驻，请求 type=invoke，回复必须 type=result 且带回同一 id，事件 type=event。"
                                    "运行时契约："
-                                   "1) 每次响应必须原样回传请求 id 与 type=result 信封（格式：{\"type\":\"result\",\"id\":req[\"id\"],\"ok\":true|false,\"text\":\"...\"}）；"
-                                   "2) 顶层必须包含 try...except/catch 全局异常处理，避免进程直接崩溃；"
+                                   "1) 每次响应推荐原样回传请求 id 与 type=result 信封（格式：{\"type\":\"result\",\"id\":req[\"id\"],\"ok\":true|false,\"text\":\"...\"}）；"
+                                   "2) 顶层建议包含 try...except/catch 全局异常处理，避免进程直接崩溃；"
                                    "3) Python 建议首行设置 sys.stdout.reconfigure(line_buffering=True, encoding='utf-8') 并在每次输出后 flush。"));
     b.input(QStringLiteral("language"), QStringLiteral("string"),
             QStringLiteral("py / js / ts，缺省 py"));

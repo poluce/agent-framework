@@ -114,7 +114,7 @@ private slots:
     void createTool_emptyInputSchemaNormalizedToObject();
     void createTool_probeSuccess_autoVerified();
     void createTool_probeSyntaxError_intercepted();
-    void createTool_probeMissingId_intercepted();
+    void createTool_probeMismatchedId_intercepted();
     void inspectTool_probeAction();
     void syncInvoke_utf8ChineseHandling();
 };
@@ -651,6 +651,7 @@ void ScriptToolSourceTests::metaTools_fillToolUseId()
         {QStringLiteral("description"), QStringLiteral("d")},
         {QStringLiteral("code"), QStringLiteral("x")},
         {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("verify"), false},
     };
     ToolResult dispatched;
     bool done = false;
@@ -783,6 +784,7 @@ void ScriptToolSourceTests::syncInvoke_unknownTypeFailsImmediately()
         {QStringLiteral("description"), QStringLiteral("错类型")},
         {QStringLiteral("code"), code},
         {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("verify"), false},
     }, ctx);
     QVERIFY(r.success);
 
@@ -898,6 +900,7 @@ void ScriptToolSourceTests::syncInvoke_timeoutFailsThisCall()
         {QStringLiteral("description"), QStringLiteral("挂起")},
         {QStringLiteral("code"), code},
         {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("verify"), false},
     }, ctx);
     QVERIFY(r.success);
 
@@ -930,6 +933,7 @@ void ScriptToolSourceTests::syncInvoke_crashIncludesStderrTraceback()
         {QStringLiteral("description"), QStringLiteral("故意抛异常")},
         {QStringLiteral("code"), code},
         {QStringLiteral("language"), QStringLiteral("py")},
+        {QStringLiteral("verify"), false},
     }, ctx);
     QVERIFY(r.success);
 
@@ -1284,7 +1288,7 @@ void ScriptToolSourceTests::createTool_probeSyntaxError_intercepted()
     QVERIFY(r.text.contains(QStringLiteral("SyntaxError")));
 }
 
-void ScriptToolSourceTests::createTool_probeMissingId_intercepted()
+void ScriptToolSourceTests::createTool_probeMismatchedId_intercepted()
 {
     const QString python = findPython();
     if (python.isEmpty()) {
@@ -1299,24 +1303,24 @@ void ScriptToolSourceTests::createTool_probeMissingId_intercepted()
     ctx.agentId = QStringLiteral("agent-0");
     ctx.workingDirectory = tmp.path();
 
-    // 缺少 id 字段的非法输出
-    const QString missingIdCode = QStringLiteral(
+    // 硬编码错误 id 的非法输出
+    const QString mismatchedIdCode = QStringLiteral(
         "import sys, json\n"
         "for line in sys.stdin:\n"
         "    req = json.loads(line)\n"
-        "    out = {'type': 'result', 'ok': True, 'text': 'no_id'}\n"
+        "    out = {'type': 'result', 'id': 'hardcoded_wrong_id', 'ok': True, 'text': 'bad'}\n"
         "    sys.stdout.write(json.dumps(out) + '\\n')\n"
         "    sys.stdout.flush()\n");
 
     ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
-        {QStringLiteral("name"), QStringLiteral("probe_missing_id")},
-        {QStringLiteral("description"), QStringLiteral("漏带 id 的脚本")},
-        {QStringLiteral("code"), missingIdCode},
+        {QStringLiteral("name"), QStringLiteral("probe_wrong_id")},
+        {QStringLiteral("description"), QStringLiteral("硬编码错误 id 的脚本")},
+        {QStringLiteral("code"), mismatchedIdCode},
         {QStringLiteral("language"), QStringLiteral("py")},
     }, ctx);
     QVERIFY(r.isError);
     QVERIFY(!r.success);
-    QVERIFY(r.text.contains(QStringLiteral("缺少 id 字段")));
+    QVERIFY(r.text.contains(QStringLiteral("与当前待处理请求不匹配")));
 }
 
 void ScriptToolSourceTests::inspectTool_probeAction()
