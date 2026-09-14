@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-14
+
+### 🔵 修复
+
+- **#36 inputSchema 规整与契约兜底**：`ToolTypes.h` 增加 `ensureObjectJsonSchema`；`ScriptToolSource` 在创建工具入库与扫描 manifest 时对空/缺 type 的入参 Schema 自动规整为 `{"type": "object", "properties": {}}`；`ChatCompletionsProvider`、`AnthropicProvider`、`GeminiProvider` 等适配器序列化到网络层时防御性兜底，避免 DeepSeek 等厂商报 400（invalid_request_error）。
+
 ## [0.6.2] - 2026-09-11
 
 ### 🟢 新增功能
@@ -14,7 +20,6 @@
 
 ### 🔵 修复
 
-- **#36 inputSchema 规整与契约兜底**：`ToolTypes.h` 增加 `ensureObjectJsonSchema`；`ScriptToolSource` 在创建工具入库与扫描 manifest 时对空/缺 type 的入参 Schema 自动规整为 `{"type": "object", "properties": {}}`；`ChatCompletionsProvider`、`AnthropicProvider`、`GeminiProvider` 等适配器序列化到网络层时防御性兜底，避免 DeepSeek 等厂商报 400（invalid_request_error）。
 - **#33 脚本工具协议与容错**：`ScriptToolSource` sync 脚本返回无 `type` 的裸 JSON 视为调用结果；退出前补收 stdout 剩余半行；信封不匹配立即报错；`create_tool` 描述明确信封要求与 `workingDirectory` 说明。
 - **同名覆盖更新重拉进程**：`create_tool` 同名更新时主动终结并清理旧进程，下次调用即刻执行新代码。
 - **调用超时精准回调**：`ScriptProcess` 超时回调精准通知该次调用，不再因移除待处理项导致回调丢失挂起整轮。
