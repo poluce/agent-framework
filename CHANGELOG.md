@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-09-14
+
+### 🟢 新增功能
+
+- **脚本工具即时自检探针（Probe）**：`create_tool` 默认自动执行协议自检探针（可通过 `verify: false` 跳过），隔离测试进程拉起、语法解析、管道缓冲与回包信封契约。自检通过返回合格诊断报告；自检失败拦截并直接回传精准的定位建议与 Traceback，阻断盲目试错。
+- **按需复检（`inspect_tool` probe）**：`inspect_tool` 新增 `action: "probe"`，支持对磁盘已有脚本工具进行健康体检。
+- **运行时配置结构解耦**：`ScriptToolSource` 抽象 `ScriptRuntimeConfig`，支持为不同解释器注入默认启动参数与环境变量，提供 `setRuntimeConfig` / `runtimeConfig` 接口。
+
+### 🟡 修改与优化
+
+- **跨平台 UTF-8 与无缓冲底座**：子进程统一注入 `LC_ALL=C.UTF-8`、`LANG=C.UTF-8`；Python 默认注入 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1`、`PYTHONUNBUFFERED=1` 以及启动参数 `-u`，消除 Windows 管道 ANSI/GBK 编码崩溃与全缓冲死锁。
+- **解释器自动探查**：`ScriptToolSource` 构造时自动探测 `python3` / `python` / `py` 可执行命令，提升 Windows 下开箱即用能力。
+- **终末 stderr 排空与精细诊断**：进程超时或异常退出时彻底排空管道 stderr，杜绝堆栈截断；细化协议不匹配原因（明确指出缺少 `id`、未识别 `type` 或信封格式错误）。
+- **元工具契约引导强化**：`create_tool` 与 `inspect_tool` 的参数描述增强，显式说明回传 `id`、顶层异常捕获与 UTF-8 推荐写法。
+
 ## [0.6.3] - 2026-09-14
 
 ### 🔵 修复
