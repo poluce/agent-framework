@@ -384,7 +384,7 @@ QJsonObject AnthropicProvider::buildToolDefinition(const ProviderToolSpecificati
     QJsonObject def;
     def.insert(QStringLiteral("name"), tool.name);
     def.insert(QStringLiteral("description"), tool.description);
-    def.insert(QStringLiteral("input_schema"), tool.inputSchema);
+    def.insert(QStringLiteral("input_schema"), ensureObjectJsonSchema(tool.inputSchema));
     if (!tool.outputSchema.isEmpty())
         def.insert(QStringLiteral("output_schema"), tool.outputSchema);
     if (tool.strictSchema)

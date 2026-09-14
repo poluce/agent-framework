@@ -99,6 +99,7 @@ private slots:
     void rollbackRemovesOrphanToolResultAndError();
     void indexesRemainCorrectAfterRemove();
     void buildRequestReportsHydrateError();
+    void ensureObjectJsonSchema_validatesAndNormalizes();
 };
 
 void ProviderProtocolMigrationTests::ledgerBuildsOneOrderedItemStream()
@@ -788,6 +789,30 @@ void ProviderProtocolMigrationTests::buildRequestReportsHydrateError()
 
     const ProviderRequestBuild build = ledger.buildRequest({});
     QVERIFY(!build.hydrateError.isEmpty());
+}
+
+void ProviderProtocolMigrationTests::ensureObjectJsonSchema_validatesAndNormalizes()
+{
+    // 1. 空对象自动补齐 type: "object" 和 properties: {}
+    const QJsonObject empty;
+    const QJsonObject n1 = ensureObjectJsonSchema(empty);
+    QCOMPARE(n1.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+    QVERIFY(n1.value(QStringLiteral("properties")).isObject());
+
+    // 2. 只有 properties 缺失 type 时，自动补齐 type: "object" 并保留原 properties
+    const QJsonObject noType{{QStringLiteral("properties"), QJsonObject{{QStringLiteral("k"), QStringLiteral("v")}}}};
+    const QJsonObject n2 = ensureObjectJsonSchema(noType);
+    QCOMPARE(n2.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+    QCOMPARE(n2.value(QStringLiteral("properties")).toObject().value(QStringLiteral("k")).toString(), QStringLiteral("v"));
+
+    // 3. 完整合规的 Schema 保持不变
+    const QJsonObject valid{
+        {QStringLiteral("type"), QStringLiteral("object")},
+        {QStringLiteral("properties"), QJsonObject{{QStringLiteral("k"), QStringLiteral("v")}}},
+        {QStringLiteral("required"), QJsonArray{QStringLiteral("k")}}
+    };
+    const QJsonObject n3 = ensureObjectJsonSchema(valid);
+    QCOMPARE(n3, valid);
 }
 
 QTEST_MAIN(ProviderProtocolMigrationTests)

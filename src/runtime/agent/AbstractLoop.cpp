@@ -2008,7 +2008,7 @@ void AbstractLoop::rebuildProviderToolSpecsCache()
         ProviderToolSpecification tool;
         tool.name = spec.name;
         tool.description = spec.description;
-        tool.inputSchema = spec.inputSchema;
+        tool.inputSchema = ensureObjectJsonSchema(spec.inputSchema);
         m_cachedProviderToolSpecs.append(tool);
     }
     // 工具集变化 → 请求固定开销（tool schema）随之失效

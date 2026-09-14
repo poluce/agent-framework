@@ -906,7 +906,7 @@ ProviderTransportRequest ResponsesProvider::buildProviderTransportRequest(const 
             item.insert(QStringLiteral("type"), QStringLiteral("function"));
             item.insert(QStringLiteral("name"), tool.name);
             item.insert(QStringLiteral("description"), tool.description);
-            item.insert(QStringLiteral("parameters"), tool.inputSchema);
+            item.insert(QStringLiteral("parameters"), ensureObjectJsonSchema(tool.inputSchema));
             if (!tool.outputSchema.isEmpty())
                 item.insert(QStringLiteral("output_schema"), tool.outputSchema);
             if (tool.strictSchema)

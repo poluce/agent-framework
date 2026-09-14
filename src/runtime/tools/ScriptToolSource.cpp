@@ -573,7 +573,7 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     QString mode = in.value(QStringLiteral("mode")).toString().trimmed();
     QString scope = in.value(QStringLiteral("scope")).toString().trimmed().toLower();
     const bool ephemeral = in.value(QStringLiteral("ephemeral")).toBool(false);
-    const QJsonObject inputSchema = in.value(QStringLiteral("input_schema")).toObject();
+    const QJsonObject inputSchema = ensureObjectJsonSchema(in.value(QStringLiteral("input_schema")).toObject());
 
     static const QRegularExpression nameRe(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]*$"));
     if (!nameRe.match(name).hasMatch()) {
@@ -877,7 +877,7 @@ void ScriptToolSource::scanDir(const QString &dir, const QString &defaultScope)
         ScriptTool tool;
         tool.spec.name = name;
         tool.spec.description = manifest.value(QStringLiteral("description")).toString();
-        tool.spec.inputSchema = manifest.value(QStringLiteral("input_schema")).toObject();
+        tool.spec.inputSchema = ensureObjectJsonSchema(manifest.value(QStringLiteral("input_schema")).toObject());
         tool.spec.permissionKind = ToolPermissionKind::Write;
         tool.filePath = filePath;
         tool.language = ext;

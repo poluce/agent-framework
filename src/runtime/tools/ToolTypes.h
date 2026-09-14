@@ -212,3 +212,22 @@ private:
     QStringList m_requiredInputs;
     QJsonObject m_outputProperties;
 };
+
+/**
+ * @brief 规整工具入参 JSON Schema 为合法的对象结构
+ *
+ * 厂商 Function Calling（OpenAI、DeepSeek、Anthropic、Gemini 等）硬性要求参数必须是
+ * type 为 "object" 的合规 JSON Schema。若传入空对象或缺失 type，自动兜底补齐为：
+ * {"type": "object", "properties": {}}。
+ */
+[[nodiscard]] inline QJsonObject ensureObjectJsonSchema(const QJsonObject &schema)
+{
+    QJsonObject normalized = schema;
+    if (normalized.value(QStringLiteral("type")).toString().trimmed() != QStringLiteral("object")) {
+        normalized.insert(QStringLiteral("type"), QStringLiteral("object"));
+    }
+    if (!normalized.contains(QStringLiteral("properties")) || !normalized.value(QStringLiteral("properties")).isObject()) {
+        normalized.insert(QStringLiteral("properties"), QJsonObject{});
+    }
+    return normalized;
+}
