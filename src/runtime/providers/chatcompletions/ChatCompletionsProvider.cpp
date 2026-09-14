@@ -507,7 +507,7 @@ QJsonArray ChatCompletionsProvider::buildTools(const ProviderRequest &request) c
         QJsonObject function;
         function.insert(QStringLiteral("name"), spec.name);
         function.insert(QStringLiteral("description"), spec.description);
-        function.insert(QStringLiteral("parameters"), spec.inputSchema);
+        function.insert(QStringLiteral("parameters"), ensureObjectJsonSchema(spec.inputSchema));
         if (spec.strictSchema)
             function.insert(QStringLiteral("strict"), true);
         tool.insert(QStringLiteral("function"), function);

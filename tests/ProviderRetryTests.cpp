@@ -51,6 +51,7 @@ private slots:
     void chatCompletionsServerErrorIsRetryable();
     void chatCompletionsErrorThenFinishedDoesNotComplete();
     void chatCompletionsEmptyFinishedFailsTurn();
+    void chatCompletionsBuildTools_normalizesEmptyInputSchema();
 
     // Loop 回归
     void retryableBeforeFirstByteKeepsTurnAlive();
@@ -863,6 +864,40 @@ void ProviderRetryTests::retryLastFailedTurnReusesUserMessage()
     QCOMPARE(errorCount, 0);
     QVERIFY(loop.lastError().isEmpty());
     QVERIFY(!loop.canRetryLastFailedTurn());
+}
+
+void ProviderRetryTests::chatCompletionsBuildTools_normalizesEmptyInputSchema()
+{
+    ChatCompletionsProvider provider;
+    ProviderRequest request;
+    ProviderToolSpecification toolWithoutType;
+    toolWithoutType.name = QStringLiteral("empty_tool");
+    toolWithoutType.description = QStringLiteral("空入参工具");
+    toolWithoutType.inputSchema = QJsonObject{};
+    request.tools.append(toolWithoutType);
+
+    ProviderToolSpecification toolWithMissingType;
+    toolWithMissingType.name = QStringLiteral("no_type_tool");
+    toolWithMissingType.description = QStringLiteral("缺 type 工具");
+    toolWithMissingType.inputSchema = QJsonObject{{QStringLiteral("properties"), QJsonObject{
+        {QStringLiteral("path"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}}}
+    }}};
+    request.tools.append(toolWithMissingType);
+
+    const QJsonArray tools = provider.buildTools(request);
+    QCOMPARE(tools.size(), 2);
+
+    // tool 1: 必须兜底补齐 type: "object" 和 properties: {}
+    const QJsonObject func1 = tools.at(0).toObject().value(QStringLiteral("function")).toObject();
+    const QJsonObject params1 = func1.value(QStringLiteral("parameters")).toObject();
+    QCOMPARE(params1.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+    QVERIFY(params1.value(QStringLiteral("properties")).isObject());
+
+    // tool 2: 必须补上缺失的 type: "object"，并保留原 properties
+    const QJsonObject func2 = tools.at(1).toObject().value(QStringLiteral("function")).toObject();
+    const QJsonObject params2 = func2.value(QStringLiteral("parameters")).toObject();
+    QCOMPARE(params2.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+    QVERIFY(params2.value(QStringLiteral("properties")).toObject().contains(QStringLiteral("path")));
 }
 
 QTEST_MAIN(ProviderRetryTests)

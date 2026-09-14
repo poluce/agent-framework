@@ -729,7 +729,7 @@ ProviderToolSpecification toProviderToolSpecification(const ToolSpec &spec)
     ProviderToolSpecification out;
     out.name = spec.name;
     out.description = spec.description;
-    out.inputSchema = spec.inputSchema;
+    out.inputSchema = ensureObjectJsonSchema(spec.inputSchema);
     out.outputSchema = spec.outputSchema;
     out.strictSchema = spec.strictSchema;
     out.deferLoading = spec.deferLoading;

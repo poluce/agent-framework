@@ -586,7 +586,7 @@ QJsonArray GeminiProvider::buildToolDefinitions(const ProviderRequest &request) 
         def.insert(QStringLiteral("type"), QStringLiteral("function"));
         def.insert(QStringLiteral("name"), tool.name);
         def.insert(QStringLiteral("description"), tool.description);
-        def.insert(QStringLiteral("parameters"), tool.inputSchema);
+        def.insert(QStringLiteral("parameters"), ensureObjectJsonSchema(tool.inputSchema));
         tools.append(def);
     }
     return tools;
@@ -976,7 +976,7 @@ ProviderTransportRequest GeminiProvider::buildGenerateContentRequest(
             declarations.append(QJsonObject{
                 {QStringLiteral("name"), tool.name},
                 {QStringLiteral("description"), tool.description},
-                {QStringLiteral("parameters"), tool.inputSchema}});
+                {QStringLiteral("parameters"), ensureObjectJsonSchema(tool.inputSchema)}});
         }
         body.insert(QStringLiteral("tools"),
                     QJsonArray{QJsonObject{

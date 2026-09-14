@@ -111,6 +111,7 @@ private slots:
     void syncInvoke_receivesWorkingDirectory();
     void inspectTool_listAndInspectSource();
     void scope_projectGlobalSession();
+    void createTool_emptyInputSchemaNormalizedToObject();
 };
 
 void ScriptToolSourceTests::scan_persistentAndEphemeral()
@@ -1139,6 +1140,61 @@ void ScriptToolSourceTests::scope_projectGlobalSession()
     QVERIFY(source.hasTool(QStringLiteral("tool_p")));
     QVERIFY(QFile::exists(globalDir + QStringLiteral("/agent-0/tool_g.py")));
     QVERIFY(QFile::exists(projectDir + QStringLiteral("/agent-0/tool_p.py")));
+}
+
+void ScriptToolSourceTests::createTool_emptyInputSchemaNormalizedToObject()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    // 1. 调用 create_tool 时不传 input_schema
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("stats_no_param")},
+        {QStringLiteral("description"), QStringLiteral("统计文件")},
+        {QStringLiteral("code"), QStringLiteral("print(1)")},
+        {QStringLiteral("language"), QStringLiteral("py")},
+    }, ctx);
+    QVERIFY(r.success);
+
+    // 2. specs() 中的 spec.inputSchema 必须是合法的 type: object 结构
+    bool found = false;
+    for (const ToolSpec &spec : source.specs()) {
+        if (spec.name == QStringLiteral("stats_no_param")) {
+            found = true;
+            QCOMPARE(spec.inputSchema.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+            QVERIFY(spec.inputSchema.value(QStringLiteral("properties")).isObject());
+        }
+    }
+    QVERIFY(found);
+
+    // 3. inspect_tool 返回的 Schema 也是合法的 type: object 结构
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("stats_no_param")},
+    }, ctx);
+    QVERIFY(r.success);
+    const QJsonObject schema = r.payload.value(QStringLiteral("input_schema")).toObject();
+    QCOMPARE(schema.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+    QVERIFY(schema.value(QStringLiteral("properties")).isObject());
+
+    // 4. 模拟磁盘上存在历史遗留的裸 input_schema: {} 文件，scanDir 重扫时自动规整
+    const QString legacyDir = tmp.path() + QStringLiteral("/tools/agent-0");
+    const QString legacyFile = legacyDir + QStringLiteral("/legacy_tool.py");
+    QVERIFY(QDir().mkpath(legacyDir));
+    QVERIFY(writeScript(legacyFile,
+                        QStringLiteral("# @tool {\"name\":\"legacy_tool\",\"description\":\"旧文件\",\"mode\":\"sync\",\"input_schema\":{}}\nprint(1)\n")));
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools")); // 触发 rescan
+    QVERIFY(source.hasTool(QStringLiteral("legacy_tool")));
+    for (const ToolSpec &spec : source.specs()) {
+        if (spec.name == QStringLiteral("legacy_tool")) {
+            QCOMPARE(spec.inputSchema.value(QStringLiteral("type")).toString(), QStringLiteral("object"));
+            QVERIFY(spec.inputSchema.value(QStringLiteral("properties")).isObject());
+        }
+    }
 }
 
 QTEST_MAIN(ScriptToolSourceTests)
