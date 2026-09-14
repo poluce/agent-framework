@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUuid>
 
@@ -58,10 +59,10 @@ public:
     using ResultCallback = std::function<void(ToolResult)>;
     using EventCallback = std::function<void(const QJsonObject &)>;
 
-    ScriptProcess(const ScriptTool &tool, const QString &runtimeCommand, QObject *parent)
+    ScriptProcess(const ScriptTool &tool, const ScriptRuntimeConfig &runtime, QObject *parent)
         : QObject(parent)
         , m_tool(tool)
-        , m_runtimeCommand(runtimeCommand)
+        , m_runtime(runtime)
         , m_idleTimer(this)
     {
         m_idleTimer.setSingleShot(true);
@@ -111,15 +112,86 @@ public:
     void start()
     {
         m_process.setWorkingDirectory(QFileInfo(m_tool.filePath).absolutePath());
-        m_process.start(m_runtimeCommand, {m_tool.filePath});
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("LC_ALL"), QStringLiteral("C.UTF-8"));
+        env.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
+        const auto envKeys = m_runtime.environment.keys();
+        for (const QString &key : envKeys) {
+            env.insert(key, m_runtime.environment.value(key));
+        }
+        m_process.setProcessEnvironment(env);
+
+        QStringList args = m_runtime.defaultArgs;
+        args.append(m_tool.filePath);
+        m_process.start(m_runtime.command, args);
     }
 
     void stop()
     {
         if (m_process.state() != QProcess::NotRunning) {
             m_process.kill();
+            m_process.waitForFinished(100);
+            drainStderr();
+            drainStdout();
         }
         m_idleTimer.stop();
+    }
+
+    void drainStderr()
+    {
+        const QByteArray rest = m_process.readAllStandardError();
+        if (!rest.isEmpty()) {
+            appendStderr(rest);
+        }
+    }
+
+    QString formatErrorWithStderr(const QString &baseMessage)
+    {
+        drainStderr();
+        const QString stderrText = QString::fromUtf8(m_stderrBuffer).trimmed();
+        if (stderrText.isEmpty()) {
+            return baseMessage;
+        }
+        return QStringLiteral("%1：\n%2").arg(baseMessage, stderrText);
+    }
+
+    void probe(std::function<void(bool passed, const QString &detail)> onComplete)
+    {
+        const qint64 startTime = QDateTime::currentMSecsSinceEpoch();
+        if (m_tool.pushMode) {
+            start();
+            auto *timer = new QTimer(this);
+            timer->setSingleShot(true);
+            connect(timer, &QTimer::timeout, this, [this, timer, onComplete, startTime]() {
+                timer->deleteLater();
+                const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - startTime;
+                if (isRunning()) {
+                    stop();
+                    onComplete(true, QStringLiteral("- 进程状态：正常启动并保持常驻（耗时 %1ms）\n- 运行模式：push（常驻）\n- 启动检查：未发现语法或初始化异常").arg(elapsed));
+                } else {
+                    const QString err = formatErrorWithStderr(QStringLiteral("进程启动后异常退出"));
+                    onComplete(false, QStringLiteral("- 进程状态：启动后崩溃退出\n- 诊断信息：%1").arg(err));
+                }
+            });
+            timer->start(600);
+            return;
+        }
+
+        const QString callId = QStringLiteral("__probe__");
+        QJsonObject probeArgs;
+        invoke(callId, probeArgs, QString(), [this, onComplete, startTime](ToolResult tr) {
+            const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - startTime;
+            stop();
+            if (tr.payloadType == QStringLiteral("script_result")) {
+                QString report = QStringLiteral("- 进程状态：正常启动（耗时 %1ms）\n- 协议握手：合格（成功接收 probe 并回传带回 id 的 result 信封）").arg(elapsed);
+                if (!tr.success) {
+                    report += QStringLiteral("\n- 脚本返回提示：%1").arg(tr.text);
+                }
+                onComplete(true, report);
+            } else {
+                onComplete(false, QStringLiteral("- 协议自检失败：%1").arg(tr.text));
+            }
+        });
     }
 
     /// 失败全部在途调用（工具被删/注销时；避免调用方永久挂起）。
@@ -218,24 +290,6 @@ private:
         }
     }
 
-    void drainStderr()
-    {
-        const QByteArray rest = m_process.readAllStandardError();
-        if (!rest.isEmpty()) {
-            appendStderr(rest);
-        }
-    }
-
-    QString formatErrorWithStderr(const QString &baseMessage)
-    {
-        drainStderr();
-        const QString stderrText = QString::fromUtf8(m_stderrBuffer).trimmed();
-        if (stderrText.isEmpty()) {
-            return baseMessage;
-        }
-        return QStringLiteral("%1：\n%2").arg(baseMessage, stderrText);
-    }
-
     void consumeCompleteLines()
     {
         int nl = 0;
@@ -274,6 +328,14 @@ private:
             handleResult(obj);
             return;
         }
+        if (!type.isEmpty() && type != QStringLiteral("result") && type != QStringLiteral("event")) {
+            failProtocolMismatch(QStringLiteral("收到未知的信封 type=%1").arg(type));
+            return;
+        }
+        if (type.isEmpty() && m_tool.pushMode) {
+            failProtocolMismatch(QStringLiteral("push 模式必须包含信封 type=result 或 type=event"));
+            return;
+        }
         failProtocolMismatch();
     }
 
@@ -288,7 +350,11 @@ private:
             it = m_pending.begin();
         }
         if (it == m_pending.end()) {
-            failProtocolMismatch();
+            if (reqId.isEmpty()) {
+                failProtocolMismatch(QStringLiteral("返回结果中缺少 id 字段（必须带回请求 id）"));
+            } else {
+                failProtocolMismatch(QStringLiteral("返回的 id（%1）与当前待处理请求不匹配").arg(reqId));
+            }
             return;
         }
         PendingInvoke pending = it.value();
@@ -326,12 +392,17 @@ private:
                 }
             }
         }
+        tr.payloadType = QStringLiteral("script_result");
         pending.callback(std::move(tr));
     }
 
-    void failProtocolMismatch()
+    void failProtocolMismatch(const QString &detail = QString())
     {
-        failPending(formatErrorWithStderr(QStringLiteral("需要 type=result 且带回请求 id")));
+        QString msg = QStringLiteral("协议不符合契约（需要 type=result 且带回请求 id）");
+        if (!detail.isEmpty()) {
+            msg += QStringLiteral("：%1").arg(detail);
+        }
+        failPending(formatErrorWithStderr(msg));
     }
 
     void failPending(const QString &reason)
@@ -356,7 +427,7 @@ private:
     }
 
     ScriptTool m_tool;
-    QString m_runtimeCommand;
+    ScriptRuntimeConfig m_runtime;
     QProcess m_process;
     QByteArray m_buffer;
     QByteArray m_stderrBuffer;
@@ -375,9 +446,29 @@ private:
 ScriptToolSource::ScriptToolSource(QObject *parent)
     : AbstractToolSource(parent)
 {
-    m_runtimeCommands.insert(QStringLiteral("py"), QStringLiteral("python3"));
-    m_runtimeCommands.insert(QStringLiteral("js"), QStringLiteral("node"));
-    m_runtimeCommands.insert(QStringLiteral("ts"), QStringLiteral("ts-node"));
+    QString pyCmd = QStringLiteral("python3");
+    for (const QString &candidate : {QStringLiteral("python3"), QStringLiteral("python"), QStringLiteral("py")}) {
+        if (!QStandardPaths::findExecutable(candidate).isEmpty()) {
+            pyCmd = candidate;
+            break;
+        }
+    }
+
+    ScriptRuntimeConfig pyConfig;
+    pyConfig.command = pyCmd;
+    pyConfig.defaultArgs = {QStringLiteral("-u")};
+    pyConfig.environment.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
+    pyConfig.environment.insert(QStringLiteral("PYTHONUTF8"), QStringLiteral("1"));
+    pyConfig.environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
+    m_runtimes.insert(QStringLiteral("py"), pyConfig);
+
+    ScriptRuntimeConfig jsConfig;
+    jsConfig.command = QStringLiteral("node");
+    m_runtimes.insert(QStringLiteral("js"), jsConfig);
+
+    ScriptRuntimeConfig tsConfig;
+    tsConfig.command = QStringLiteral("ts-node");
+    m_runtimes.insert(QStringLiteral("ts"), tsConfig);
 }
 
 ScriptToolSource::~ScriptToolSource()
@@ -437,9 +528,25 @@ void ScriptToolSource::setEphemeralDirectory(const QString &dir)
     rescan();
 }
 
+void ScriptToolSource::setRuntimeConfig(const QString &language, const ScriptRuntimeConfig &config)
+{
+    m_runtimes.insert(language, config);
+}
+
+ScriptToolSource::ScriptRuntimeConfig ScriptToolSource::runtimeConfig(const QString &language) const
+{
+    return m_runtimes.value(language);
+}
+
 void ScriptToolSource::setRuntimeCommand(const QString &language, const QString &command)
 {
-    m_runtimeCommands.insert(language, command);
+    if (m_runtimes.contains(language)) {
+        m_runtimes[language].command = command;
+    } else {
+        ScriptRuntimeConfig cfg;
+        cfg.command = command;
+        m_runtimes.insert(language, cfg);
+    }
 }
 
 void ScriptToolSource::setIdleTimeoutMs(int ms)
@@ -524,9 +631,10 @@ ToolSpec ScriptToolSource::createToolSpec()
                     QStringLiteral("工具描述（给模型的说明）"));
     b.requiredInput(QStringLiteral("code"), QStringLiteral("string"),
                     QStringLiteral("脚本代码。请求 JSON 包含 args（调用入参）与 workingDirectory（当前工作区路径；访问相对路径或工程文件时务必读取或切换至此路径）。"
-                                   "sync（缺省）：stdin 读一行 JSON 请求，stdout 写一行 JSON 结果即可"
-                                   "（推荐带 type=result 和请求 id；无 type 时视为这次调用的结果）。"
-                                   "push：长驻，请求 type=invoke，回复必须 type=result 且带回同一 id，事件 type=event"));
+                                   "运行时契约："
+                                   "1) 每次响应必须原样回传请求 id 与 type=result 信封（格式：{\"type\":\"result\",\"id\":req[\"id\"],\"ok\":true|false,\"text\":\"...\"}）；"
+                                   "2) 顶层必须包含 try...except/catch 全局异常处理，避免进程直接崩溃；"
+                                   "3) Python 建议首行设置 sys.stdout.reconfigure(line_buffering=True, encoding='utf-8') 并在每次输出后 flush。"));
     b.input(QStringLiteral("language"), QStringLiteral("string"),
             QStringLiteral("py / js / ts，缺省 py"));
     b.input(QStringLiteral("mode"), QStringLiteral("string"),
@@ -534,9 +642,11 @@ ToolSpec ScriptToolSource::createToolSpec()
     b.input(QStringLiteral("scope"), QStringLiteral("string"),
             QStringLiteral("作用域：project（项目级，存入当前工作区 .agent/tools，随工程持久；缺省）/ global（全局级，存入用户全局目录，所有工程共享）/ session（会话临时，会话结束自动销毁）"));
     b.input(QStringLiteral("input_schema"), QStringLiteral("object"),
-            QStringLiteral("工具入参 JSON Schema"));
+            QStringLiteral("工具入参 JSON Schema（根对象必须为 type: \"object\" 且包含 properties）"));
     b.input(QStringLiteral("ephemeral"), QStringLiteral("boolean"),
             QStringLiteral("true=临时工具（等价于 scope=session），缺省 false（优先推荐使用 scope）"));
+    b.input(QStringLiteral("verify"), QStringLiteral("boolean"),
+            QStringLiteral("是否在写入后立即执行协议自检探针（验证进程拉起、语法解析及回包信封契约），缺省 true"));
     return b.build();
 }
 
@@ -555,10 +665,12 @@ ToolSpec ScriptToolSource::deleteToolSpec()
 ToolSpec ScriptToolSource::inspectToolSpec()
 {
     ToolSpecBuilder b(QStringLiteral("inspect_tool"),
-                      QStringLiteral("检视自建脚本工具：查看自建工具清单或读取指定工具的完整源码，以便评估逻辑或进行修改改造。"),
+                      QStringLiteral("检视自建脚本工具：查看自建工具清单、读取指定工具源码、或执行协议自检探针以定位异常。"),
                       ToolPermissionKind::ReadOnly);
     b.input(QStringLiteral("name"), QStringLiteral("string"),
-            QStringLiteral("要查看的自建工具名。留空则列出当前所有自建工具的摘要清单。"));
+            QStringLiteral("要操作的自建工具名。留空且 action=read 时列出当前所有自建工具清单。"));
+    b.input(QStringLiteral("action"), QStringLiteral("string"),
+            QStringLiteral("操作类型：read（读取源码或列表，缺省）/ probe（执行协议探针自检并输出健康诊断报告）"));
     return b.build();
 }
 
@@ -679,10 +791,28 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     dropProcess(name, QStringLiteral("工具已更新：%1").arg(name));
     rescan();
     emit toolsChanged();
-    done(okResult(call.toolName,
-                  QStringLiteral("工具已创建：%1（%2，%3，作用域：%4）")
-                      .arg(name, language, mode, scope),
-                  call.id));
+
+    const bool verify = in.value(QStringLiteral("verify")).toBool(true);
+    if (!verify) {
+        done(okResult(call.toolName,
+                      QStringLiteral("工具已创建：%1（%2，%3，作用域：%4）")
+                          .arg(name, language, mode, scope),
+                      call.id));
+        return;
+    }
+
+    probeTool(name, [this, call, name, language, mode, scope, done](bool passed, const QString &detail) {
+        if (passed) {
+            const QString text = QStringLiteral("工具已创建并验证成功：%1（%2，%3，作用域：%4）\n[协议自检合格]\n%5")
+                                     .arg(name, language, mode, scope, detail);
+            done(okResult(call.toolName, text, call.id));
+        } else {
+            const QString text = QStringLiteral("工具 %1 文件已写入，但未通过协议自检：\n%2\n\n"
+                                                "提示：请根据上述自检诊断修改代码后，再次调用 create_tool 同名覆盖。")
+                                     .arg(name, detail);
+            done(errorResult(call.toolName, text, call.id));
+        }
+    });
 }
 
 void ScriptToolSource::handleDeleteTool(const ToolCall &call, const ToolInvokeContext &ctx,
@@ -766,6 +896,21 @@ void ScriptToolSource::handleInspectTool(const ToolCall &call, const ToolInvokeC
         done(errorResult(call.toolName,
                          QStringLiteral("自建工具不存在：%1。可通过 inspect_tool() 查看所有已有自建工具。").arg(name),
                          call.id));
+        return;
+    }
+
+    const QString action = call.input.value(QStringLiteral("action")).toString().trimmed().toLower();
+    if (action == QStringLiteral("probe") || action == QStringLiteral("test")) {
+        probeTool(name, [call, name, done](bool passed, const QString &detail) {
+            if (passed) {
+                const QString text = QStringLiteral("自建工具 %1 协议自检通过：\n%2").arg(name, detail);
+                done(okResult(call.toolName, text, call.id));
+            } else {
+                const QString text = QStringLiteral("自建工具 %1 协议自检未通过：\n%2\n\n"
+                                                    "提示：请根据上述自检诊断修改代码后，使用 create_tool 同名覆盖。").arg(name, detail);
+                done(errorResult(call.toolName, text, call.id));
+            }
+        });
         return;
     }
 
@@ -935,11 +1080,11 @@ ScriptToolSource::ScriptProcess *ScriptToolSource::processFor(const QString &too
         return proc->isRunning() ? proc : nullptr;
     }
     const ScriptTool tool = m_tools.value(toolName);
-    const QString command = m_runtimeCommands.value(tool.language);
-    if (command.isEmpty()) {
+    const ScriptRuntimeConfig runtime = m_runtimes.value(tool.language);
+    if (runtime.command.isEmpty()) {
         return nullptr;
     }
-    auto *proc = new ScriptProcess(tool, command, this);
+    auto *proc = new ScriptProcess(tool, runtime, this);
     proc->setEventCallback([this, toolName](const QJsonObject &event) {
         handleEvent(toolName, event);
     });
@@ -984,4 +1129,26 @@ void ScriptToolSource::handleEvent(const QString &toolName, const QJsonObject &e
             << logf("tool", toolName)
             << logf("agentId", target);
     }
+}
+
+void ScriptToolSource::probeTool(const QString &toolName,
+                                 std::function<void(bool passed, const QString &detail)> done)
+{
+    if (!m_tools.contains(toolName)) {
+        done(false, QStringLiteral("自建工具不存在：%1").arg(toolName));
+        return;
+    }
+    const ScriptTool tool = m_tools.value(toolName);
+    const ScriptRuntimeConfig runtime = m_runtimes.value(tool.language);
+    if (runtime.command.isEmpty()) {
+        done(false, QStringLiteral("未配置对应语言（%1）的解释器运行命令").arg(tool.language));
+        return;
+    }
+
+    auto *proc = new ScriptProcess(tool, runtime, this);
+    proc->setInvokeTimeoutMs(3000);
+    proc->probe([proc, done = std::move(done)](bool passed, const QString &detail) {
+        proc->deleteLater();
+        done(passed, detail);
+    });
 }

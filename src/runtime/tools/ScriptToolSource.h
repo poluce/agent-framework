@@ -4,7 +4,9 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QProcessEnvironment>
 #include <QString>
+#include <QStringList>
 
 class AbstractSession;
 
@@ -34,6 +36,13 @@ public:
         bool pushMode = false;
     };
 
+    struct ScriptRuntimeConfig
+    {
+        QString command;
+        QStringList defaultArgs;
+        QProcessEnvironment environment;
+    };
+
     explicit ScriptToolSource(QObject *parent = nullptr);
     ~ScriptToolSource() override;
 
@@ -45,6 +54,9 @@ public:
     void setProjectDirectory(const QString &dir);
     /// 临时/会话级工具目录（本源析构或会话清理时删除其中的工具文件）。
     void setEphemeralDirectory(const QString &dir);
+    /// 语言 → 运行时完整配置（含启动参数与特定环境变量）。
+    void setRuntimeConfig(const QString &language, const ScriptRuntimeConfig &config);
+    ScriptRuntimeConfig runtimeConfig(const QString &language) const;
     /// 语言 → 运行时命令（缺省 py=python3 / js=node / ts=ts-node）。
     void setRuntimeCommand(const QString &language, const QString &command);
     /// sync 型进程空闲回收毫秒数（缺省 60000；push 型常驻）。
@@ -68,6 +80,9 @@ public:
     {
         return m_tools.value(toolName).filePath;
     }
+    /// 对指定工具执行协议探针（测试启动、语法与回包信封契约）。
+    void probeTool(const QString &toolName,
+                   std::function<void(bool passed, const QString &detail)> done);
 
 private:
     class ScriptProcess;
@@ -90,7 +105,7 @@ private:
     QString m_toolDir;       // global tools
     QString m_projectDir;    // project tools
     QString m_ephemeralDir;  // session tools
-    QHash<QString, QString> m_runtimeCommands;
+    QHash<QString, ScriptRuntimeConfig> m_runtimes;
     int m_idleTimeoutMs = 60000;
     int m_invokeTimeoutMs = 60000;
     QHash<QString, ScriptTool> m_tools;
