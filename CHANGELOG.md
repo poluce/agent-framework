@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-09-15
+
+### 🟢 新增功能
+
+- **大压线路回放上一轮前缀（对齐 DSH 策略）**：
+  - 大压请求复用上一轮 system prompt、tool definitions 与被压区间的真实调用记录，将 `compact.md` 作为末条 user 消息发送，充分利用上游 KV Cache（Prefix Caching）命中。
+  - 回放项无法水化或为空时平滑回落至文档材料抽取。
+- **切片段摘要前置背景注入**：
+  - 在段摘要提示词中引入只读前置背景参考（`SummaryRecord` 上一条摘要），解除跨切片语义孤岛，并设定 1500 tokens 安全截断预算，严格禁止输出复述前置背景。
+- **上下文超窗协议错误规范化与自愈重试**：
+  - 协议层与重试分类新增统一标准错误码 `ProviderErrorCodes::ContextWindowExceeded` (`"context_window_exceeded"`)，标记不可瞬时重试。
+  - `AbstractLoop` 拦截超窗错误并自动触发超窗压缩，完成后恢复当前轮执行，支持最大 1 次超窗自愈重试。
+
+### 🟡 修改与优化
+
+- **大压摘要持久化与段摘要解耦**：
+  - 修复此前未安装段摘要队列时大压生成的摘要被直接丢弃的问题，解耦 `SummaryStore` 与 `ModelViewStore` 对段摘要队列的依赖，大压摘要与模型视图前缀无缝持久化。
+  - 段摘要切片阈值自适应模型窗口大小，避免中小窗口模型下段摘要静默失效。
+- **Token 估算一致性提升**：
+  - 统一将工具入参（`toolInput` / `rawInputJson`）与思考过程（`reasoningContent`）纳入条目估算，并收敛至 `CompactPolicy::estimateEntryTokens`。
+  - 压缩引擎在收口校验时优先基于账本水化记录校验「摘要必须真正变短」，未缩短时安全回滚重试，失败不破坏账本。
+- **安全默认参数微调**：
+  - 默认 `compactMaxOutputTokens` / `maxOutputTokens` 从 80000 调整为安全通用的 8192，避免因默认值过大触发各模型厂商的 HTTP 400（参数超限）。
+
 ## [0.6.5] - 2026-09-15
 
 ### 🟢 新增功能
