@@ -29,6 +29,7 @@ public:
         QString userPromptFile;
         QString compactOverlayFile;
         QString segmentOverlayFile;
+        QString basePromptFile;
     };
 
     explicit SystemPromptBuilder(QObject *parent = nullptr);
@@ -38,6 +39,7 @@ public:
     void prepare();
 
     // 分段数据源
+    void setBaseBehavior(const QString &text);
     void setUserCustomPrompt(const QString &text);
     QString baseBehavior() const { return m_baseBehavior; }
     QString userCustomPrompt() const { return m_userCustomPrompt; }

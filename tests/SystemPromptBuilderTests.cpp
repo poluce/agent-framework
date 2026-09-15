@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QTemporaryFile>
 #include <QtTest>
 
 class SystemPromptBuilderTests : public QObject
@@ -14,6 +15,11 @@ private slots:
     void roleCustomPrompt_emptyDoesNotAdd();
     void roleCustomPrompt_doesNotUseUserSlot();
     void roleCustomPrompt_appliesPlaceholders();
+    void baseBehavior_defaultNeutral();
+    void baseBehavior_setBaseBehaviorOverridesDefault();
+    void baseBehavior_promptPathsBaseFileOverridesDefault();
+    void baseBehavior_externalDirectoryOverridesBuiltin();
+    void baseBehavior_invalidPathFallsBackToDefault();
 };
 
 void SystemPromptBuilderTests::roleCustomPrompt_appendsAfterTemplate()
@@ -75,6 +81,89 @@ void SystemPromptBuilderTests::roleCustomPrompt_appliesPlaceholders()
     const QString prompt = builder.buildPrompt(ctx);
     QVERIFY(prompt.contains(QStringLiteral("卡 agent-0/主单元")));
     QVERIFY(!prompt.contains(QStringLiteral("{agentId}")));
+}
+
+void SystemPromptBuilderTests::baseBehavior_defaultNeutral()
+{
+    SystemPromptBuilder builder;
+    AgentPromptContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    const QString prompt = builder.buildPrompt(ctx);
+
+    QVERIFY(!prompt.contains(QStringLiteral("agent_qt")));
+    QVERIFY(prompt.contains(QStringLiteral("你是桌面执行型智能体")));
+    QVERIFY(prompt.contains(QStringLiteral("工作原则")));
+    QVERIFY(prompt.contains(QStringLiteral("直接行动")));
+}
+
+void SystemPromptBuilderTests::baseBehavior_setBaseBehaviorOverridesDefault()
+{
+    SystemPromptBuilder builder;
+    builder.setBaseBehavior(QStringLiteral("CUSTOM_IN_MEMORY_BASE"));
+    builder.prepare();
+
+    AgentPromptContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    const QString prompt = builder.buildPrompt(ctx);
+
+    QVERIFY(prompt.contains(QStringLiteral("CUSTOM_IN_MEMORY_BASE")));
+    QVERIFY(!prompt.contains(QStringLiteral("你是桌面执行型智能体")));
+    QCOMPARE(builder.baseBehavior(), QStringLiteral("CUSTOM_IN_MEMORY_BASE"));
+}
+
+void SystemPromptBuilderTests::baseBehavior_promptPathsBaseFileOverridesDefault()
+{
+    QTemporaryFile tempFile;
+    QVERIFY(tempFile.open());
+    tempFile.write("CUSTOM_FILE_BASE_BEHAVIOR");
+    tempFile.flush();
+
+    SystemPromptBuilder::PromptPaths paths;
+    paths.basePromptFile = tempFile.fileName();
+    SystemPromptBuilder builder(paths);
+
+    AgentPromptContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    const QString prompt = builder.buildPrompt(ctx);
+
+    QVERIFY(prompt.contains(QStringLiteral("CUSTOM_FILE_BASE_BEHAVIOR")));
+    QVERIFY(!prompt.contains(QStringLiteral("你是桌面执行型智能体")));
+}
+
+void SystemPromptBuilderTests::baseBehavior_externalDirectoryOverridesBuiltin()
+{
+    const QString dir = QCoreApplication::applicationDirPath()
+        + QStringLiteral("/system_prompts");
+    QVERIFY(QDir().mkpath(dir));
+    const QString externalBasePath = dir + QStringLiteral("/base.md");
+
+    QFile file(externalBasePath);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+    file.write("EXTERNAL_OVERRIDE_BASE");
+    file.close();
+
+    SystemPromptBuilder builder;
+    AgentPromptContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    const QString prompt = builder.buildPrompt(ctx);
+
+    QFile::remove(externalBasePath);
+
+    QVERIFY(prompt.contains(QStringLiteral("EXTERNAL_OVERRIDE_BASE")));
+    QVERIFY(!prompt.contains(QStringLiteral("你是桌面执行型智能体")));
+}
+
+void SystemPromptBuilderTests::baseBehavior_invalidPathFallsBackToDefault()
+{
+    SystemPromptBuilder::PromptPaths paths;
+    paths.basePromptFile = QStringLiteral("/non_existent_dir/non_existent_file.md");
+    SystemPromptBuilder builder(paths);
+
+    AgentPromptContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    const QString prompt = builder.buildPrompt(ctx);
+
+    QVERIFY(prompt.contains(QStringLiteral("你是桌面执行型智能体")));
 }
 
 QTEST_MAIN(SystemPromptBuilderTests)

@@ -17,6 +17,13 @@
 #include <QSysInfo>
 #include <QtConcurrent>
 
+// 确保静态库中的 QRC 资源被链接并初始化
+inline void initFrameworkResources()
+{
+    Q_INIT_RESOURCE(system_prompts);
+    Q_INIT_RESOURCE(config);
+}
+
 namespace {
 
 // 运行命令并返回版本字符串（超时 3 秒）
@@ -167,18 +174,18 @@ bool isSafePromptBasename(const QString &fileName)
 QStringList promptTemplateDirectories()
 {
     QStringList dirs;
-    dirs << QStringLiteral(":/system_prompts");
     const QString appDir = QCoreApplication::applicationDirPath();
     if (!appDir.isEmpty()) {
         dirs << QDir(appDir).filePath(QStringLiteral("system_prompts"));
     }
+    dirs << QStringLiteral(":/system_prompts");
     return dirs;
 }
 
 QString loadPromptTemplate(const QString &fileName)
 {
-    // 内置 qrc 在前作为基底，外部 system_prompts 目录同名文件只追加、不覆盖。
-    QStringList parts;
+    initFrameworkResources();
+    // 优先外部同名模板覆盖，外部不存在时回退内置 qrc 兜底（First Hit Wins）。
     for (const QString &dirPath : promptTemplateDirectories()) {
         QFile file(QDir(dirPath).filePath(fileName));
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -186,10 +193,10 @@ QString loadPromptTemplate(const QString &fileName)
         }
         const QString content = QString::fromUtf8(file.readAll()).trimmed();
         if (!content.isEmpty()) {
-            parts << content;
+            return content;
         }
     }
-    return parts.join(QStringLiteral("\n\n"));
+    return {};
 }
 
 QString applyRolePlaceholders(QString text, const AgentPromptContext &ctx)
@@ -237,6 +244,7 @@ SystemPromptBuilder::SystemPromptBuilder(PromptPaths paths, QObject *parent)
     : QObject(parent)
     , m_paths(std::move(paths))
 {
+    initFrameworkResources();
     m_envWatcher = new QFutureWatcher<QString>(this);
     connect(m_envWatcher, &QFutureWatcher<QString>::finished, this, [this]() {
         m_cachedEnvBlock = m_envWatcher->result();
@@ -247,7 +255,9 @@ SystemPromptBuilder::SystemPromptBuilder(PromptPaths paths, QObject *parent)
 
 void SystemPromptBuilder::prepare()
 {
-    m_baseBehavior = loadBaseBehavior();
+    if (m_baseBehavior.isEmpty()) {
+        m_baseBehavior = loadBaseBehavior();
+    }
     m_userCustomPrompt = loadUserPromptFile();
     invalidateStableCache();
     // 环境块异步检测（QtConcurrent），完成后发 environmentDetected()，不阻塞主线程。
@@ -258,6 +268,11 @@ void SystemPromptBuilder::prepare()
 }
 
 // ── 数据源 setter ──
+
+void SystemPromptBuilder::setBaseBehavior(const QString &text)
+{
+    m_baseBehavior = text.trimmed();
+}
 
 void SystemPromptBuilder::setAvailableSkills(const QString &skillsBlock)
 {
@@ -452,6 +467,15 @@ QString SystemPromptBuilder::loadNamedPromptTemplate(const QString &fileName) co
 
 QString SystemPromptBuilder::loadBaseBehavior() const
 {
+    if (!m_paths.basePromptFile.isEmpty()) {
+        QFile file(m_paths.basePromptFile);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QString content = QString::fromUtf8(file.readAll()).trimmed();
+            if (!content.isEmpty()) {
+                return content;
+            }
+        }
+    }
     return loadPromptTemplate(QStringLiteral("base.md"));
 }
 

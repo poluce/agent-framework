@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-09-15
+
+### 🟢 新增功能
+
+- **底座行为一等注入（#38）**：
+  - `SystemPromptBuilder` 新增 `setBaseBehavior(const QString &text)`，支持开发者直接在内存中传入自定义底座提示词（覆盖默认 `base.md`），`prepare()` 保证不覆盖已有设置。
+  - `SystemPromptBuilder::PromptPaths` 新增 `basePromptFile` 字段，支持指定磁盘文件或 QRC 资源路径覆盖底座。
+
+### 🟡 修改与优化
+
+- **内置模板中立化（#38）**：`resources/system_prompts/base.md` 移除 `# agent_qt 桌面执行型 Agent` 标题及首句特定产品名，转为中立通用的「桌面执行型智能体」定义，保留核心工作原则与工程规范。
+- **模板查找解析器重构（First Hit Wins）**：`loadPromptTemplate` 修复为外部同名覆盖优先链，外部目录存在同名模板时直接使用，不存在时平滑回退至内置 QRC 模板，废弃此前无脑同名拼接反常行为。
+- **静态库 QRC 资源可靠初始化**：显式注入 `initFrameworkResources()`，确保在仅链接静态库的单元测试或第三方集成目标中 QRC 资源符号不被编译器丢弃。
+
 ## [0.6.4] - 2026-09-14
 
 ### 🟢 新增功能
