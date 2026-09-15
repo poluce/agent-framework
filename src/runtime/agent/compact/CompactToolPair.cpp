@@ -9,11 +9,6 @@
 namespace CompactToolPair {
 namespace {
 
-qint64 estimateEntryTokens(const ConversationMessage &entry)
-{
-    return CompactPolicy::estimateEntryTokens(entry);
-}
-
 bool isToolPairKind(const ConversationMessage::Kind kind)
 {
     return kind == ConversationMessage::Kind::ToolCall
@@ -108,7 +103,7 @@ QList<QString> selectPrefixToCompact(const QList<ConversationMessage> &entries,
         if (!isCompactCandidate(entry)) {
             continue;
         }
-        accumulated += estimateEntryTokens(entry);
+        accumulated += CompactPolicy::estimateEntryTokens(entry);
         keepFrom = i;
         keptOne = true;
         if (retain == 0 || accumulated >= retain) {

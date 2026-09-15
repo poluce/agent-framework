@@ -1,6 +1,7 @@
 #include "CompactPolicy.h"
 
 #include "agent/ProviderRunLedger.h"
+#include "providers/core/ProviderRetryPolicy.h"
 #include "types/ConversationMessage.h"
 
 #include <QJsonDocument>
@@ -95,37 +96,10 @@ qint64 estimateEntryTokens(const ConversationMessage &entry)
 bool isContextWindowExceeded(const ProviderError &error)
 {
     if (error.code == QLatin1String(kErrorContextWindowExceeded)
-        || error.code == QLatin1String("context_window_exceeded")
         || error.code == QLatin1String("context_length_exceeded")) {
         return true;
     }
-    const QString blob = (error.code + QLatin1Char(' ') + error.message).toLower();
-    if (blob.isEmpty()) {
-        return false;
-    }
-    static const QStringList needles = {
-        QStringLiteral("context_length"),
-        QStringLiteral("context length"),
-        QStringLiteral("context_window"),
-        QStringLiteral("context window"),
-        QStringLiteral("maximum context"),
-        QStringLiteral("max context"),
-        QStringLiteral("prompt is too long"),
-        QStringLiteral("prompt too long"),
-        QStringLiteral("too many tokens"),
-        QStringLiteral("token limit"),
-        QStringLiteral("context limit"),
-        QStringLiteral("range of input length"),
-        QStringLiteral("model's maximum context"),
-        QStringLiteral("exceeds the context"),
-        QStringLiteral("上下文"),
-    };
-    for (const QString &needle : needles) {
-        if (blob.contains(needle)) {
-            return true;
-        }
-    }
-    return false;
+    return ProviderRetry::isContextWindowExceededText(error.code + QLatin1Char(' ') + error.message);
 }
 
 } // namespace CompactPolicy

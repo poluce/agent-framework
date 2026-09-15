@@ -374,17 +374,7 @@ void AbstractProvider::emitReasoningDelta(ProviderReasoningDelta delta)
 void AbstractProvider::emitErrorOccurred(ProviderError error)
 {
     if (error.code.isEmpty() || error.code.endsWith(QStringLiteral("_error"))) {
-        const QString blob = (error.code + QLatin1Char(' ') + error.message).toLower();
-        if (blob.contains(QStringLiteral("context_length"))
-            || blob.contains(QStringLiteral("context length"))
-            || blob.contains(QStringLiteral("context_window"))
-            || blob.contains(QStringLiteral("context window"))
-            || blob.contains(QStringLiteral("maximum context"))
-            || blob.contains(QStringLiteral("max context"))
-            || blob.contains(QStringLiteral("prompt is too long"))
-            || blob.contains(QStringLiteral("prompt too long"))
-            || blob.contains(QStringLiteral("too many tokens"))
-            || blob.contains(QStringLiteral("token limit"))) {
+        if (ProviderRetry::isContextWindowExceededText(error.code + QLatin1Char(' ') + error.message)) {
             error.code = QString::fromLatin1(ProviderErrorCodes::ContextWindowExceeded);
             error.retryable = false;
         }

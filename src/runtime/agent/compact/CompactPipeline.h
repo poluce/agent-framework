@@ -75,6 +75,7 @@ private:
     void onCompactionFinished(bool success);
     void onCompactionFailed(const QString &reason);
     void startCompactionEngine(qint64 targetTokensOverride = -1);
+    int pruneOversizedToolResults();
     /// 修剪超长工具结果；若 threshold>0 且修剪后低于阈值则 continue，返回 true。
     [[nodiscard]] bool pruneToolResultsThenContinue(qint64 threshold);
     void maybeEnqueueSegmentSummary();

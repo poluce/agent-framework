@@ -29,11 +29,6 @@ bool isSummarizable(const ConversationMessage &entry)
     }
 }
 
-qint64 estimateEntryTokens(const ConversationMessage &entry)
-{
-    return CompactPolicy::estimateEntryTokens(entry);
-}
-
 /// 从尾部回溯，找到「最近 K 个用户轮」起点在 entries 中的下标；K<=0 视为 0
 int recentTailStartIndex(const QList<ConversationMessage> &entries, const int recentTurns)
 {
@@ -79,7 +74,7 @@ qint64 estimateTokensSince(const ProviderRunLedger &ledger, const QString &after
 {
     qint64 total = 0;
     forEachSummarizableSince(ledger, afterEntryId, [&](const ConversationMessage &entry) {
-        total += estimateEntryTokens(entry);
+        total += CompactPolicy::estimateEntryTokens(entry);
     });
     return total;
 }
@@ -180,7 +175,7 @@ ModelViewAssembleResult assemble(const ProviderRunLedger &ledger,
         if (entry.wasCompacted || selected.contains(entry.id) || !entry.submittedToModel) {
             continue;
         }
-        tokens += estimateEntryTokens(entry);
+        tokens += CompactPolicy::estimateEntryTokens(entry);
     }
     result.estimatedTokens = tokens;
     result.ok = !result.summaryTexts.isEmpty();

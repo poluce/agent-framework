@@ -109,13 +109,7 @@ void CompactPipeline::onOverflowCompactionRequested()
         m_loop->endBoundarySummaryWait(true);
     }
     clearSummaryQueueForBulk();
-    if (m_loop) {
-        const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
-        if (pruned > 0) {
-            m_loop->refreshContextTokenEstimate();
-            emit unitDataChanged();
-        }
-    }
+    pruneOversizedToolResults();
     startCompactionEngine();
 }
 
@@ -181,13 +175,7 @@ bool CompactPipeline::requestManualCompaction(const qint64 targetTokens)
     m_manualCompaction = true;
     m_overflowCompaction = false;
     m_loop->beginManualCompaction();
-    if (m_loop) {
-        const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
-        if (pruned > 0) {
-            m_loop->refreshContextTokenEstimate();
-            emit unitDataChanged();
-        }
-    }
+    pruneOversizedToolResults();
     startCompactionEngine(targetTokens);
     return true;
 }
@@ -450,19 +438,27 @@ void CompactPipeline::onCompactionFinished(const bool success)
     }
 }
 
-bool CompactPipeline::pruneToolResultsThenContinue(const qint64 threshold)
+int CompactPipeline::pruneOversizedToolResults()
 {
     if (!m_loop) {
-        return false;
+        return 0;
     }
     const int pruned = CompactPolicy::pruneOversizedToolResults(m_loop->ledger());
+    if (pruned > 0) {
+        m_loop->refreshContextTokenEstimate();
+        emit unitDataChanged();
+    }
+    return pruned;
+}
+
+bool CompactPipeline::pruneToolResultsThenContinue(const qint64 threshold)
+{
+    const int pruned = pruneOversizedToolResults();
     if (pruned > 0) {
         LOGI(LogCat::Agent) << "压缩前修剪工具结果"
             << logf("agentId", m_agentId)
             << logf("pruned", pruned);
-        m_loop->refreshContextTokenEstimate();
-        emit unitDataChanged();
-        if (threshold > 0 && m_loop->currentContextTokenEstimate() <= threshold) {
+        if (threshold > 0 && m_loop && m_loop->currentContextTokenEstimate() <= threshold) {
             LOGI(LogCat::Agent) << "修剪后低于阈值，跳过大压"
                 << logf("tokens", m_loop->currentContextTokenEstimate())
                 << logf("threshold", threshold);

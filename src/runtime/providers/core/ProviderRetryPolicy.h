@@ -65,6 +65,9 @@ struct Classification
 /// `error` 字段可能是对象或字符串；字符串仅在明确过载措辞时标 retryable。
 [[nodiscard]] Classification classifyApiErrorValue(const QJsonValue &errorValue);
 
+/// 检测错误文本是否包含模型上下文超窗特征
+[[nodiscard]] bool isContextWindowExceededText(const QString &text);
+
 /// 秒数字 / retry-after-ms / HTTP-date；失败或超 maxMs → -1
 [[nodiscard]] int parseRetryAfter(const QByteArray &header, int maxMs);
 

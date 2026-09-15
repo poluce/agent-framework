@@ -163,9 +163,10 @@ QString taskShell(const QString &material, const QString &priorContext = {})
     QString shell = QStringLiteral(
         "请基于下列对话材料，为即将接手的模型写一份交接摘要。\n"
         "只输出摘要正文，禁止调用工具、禁止输出 tool_calls/DSML/函数调用 JSON、禁止复述整段材料。\n\n");
-    if (!priorContext.trimmed().isEmpty()) {
+    const QString trimmedPrior = priorContext.trimmed();
+    if (!trimmedPrior.isEmpty()) {
         constexpr qint64 kPriorContextCapTokens = 1500;
-        const QString cappedCtx = trimTextToBudget(priorContext.trimmed(), kPriorContextCapTokens);
+        const QString cappedCtx = trimTextToBudget(trimmedPrior, kPriorContextCapTokens);
         shell += QStringLiteral(
             "【前置背景参考（只读）】\n"
             "下列前置背景仅用于帮助理解本段材料中的代词、方案编号与上下文依赖，禁止在输出中复述或改写前置背景，仅总结本段材料中新发生的事实：\n"

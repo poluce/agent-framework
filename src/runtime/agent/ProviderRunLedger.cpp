@@ -733,14 +733,10 @@ QList<ProviderItem> makeModelViewPrefixItems(const QList<QString> &texts)
     QList<ProviderItem> items;
     items.reserve(texts.size());
     for (const QString &text : texts) {
-        if (text.trimmed().isEmpty()) {
-            continue;
-        }
         const QString body = CompactPolicy::frameCheckpoint(text);
-        if (body.trimmed().isEmpty()) {
-            continue;
+        if (!body.isEmpty()) {
+            items.append(ProviderItem::makeUserText(body));
         }
-        items.append(ProviderItem::makeUserText(body));
     }
     return items;
 }
