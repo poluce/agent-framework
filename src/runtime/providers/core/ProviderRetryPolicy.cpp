@@ -61,6 +61,7 @@ Classification classifyApiErrorObject(const QJsonObject &errorObject)
 
     const QString type = errorObject.value(QStringLiteral("type")).toString().trimmed().toLower();
     const QString status = errorObject.value(QStringLiteral("status")).toString().trimmed().toUpper();
+    const QString message = errorObject.value(QStringLiteral("message")).toString().trimmed().toLower();
     const QJsonValue codeValue = errorObject.value(QStringLiteral("code"));
     QString code;
     int numericCode = 0;
@@ -73,6 +74,22 @@ Classification classifyApiErrorObject(const QJsonObject &errorObject)
         }
     } else if (codeValue.isDouble()) {
         numericCode = codeValue.toInt();
+    }
+
+    const QString errorBlob = type + QLatin1Char(' ') + code + QLatin1Char(' ') + message;
+    if (errorBlob.contains(QStringLiteral("context_length"))
+        || errorBlob.contains(QStringLiteral("context length"))
+        || errorBlob.contains(QStringLiteral("context_window"))
+        || errorBlob.contains(QStringLiteral("context window"))
+        || errorBlob.contains(QStringLiteral("maximum context"))
+        || errorBlob.contains(QStringLiteral("max context"))
+        || errorBlob.contains(QStringLiteral("prompt is too long"))
+        || errorBlob.contains(QStringLiteral("prompt too long"))
+        || errorBlob.contains(QStringLiteral("too many tokens"))
+        || errorBlob.contains(QStringLiteral("token limit"))) {
+        result.isContextWindowExceeded = true;
+        result.retryable = false;
+        return result;
     }
 
     const auto looksTransient = [](const QString &token) {
@@ -121,6 +138,20 @@ Classification classifyApiErrorValue(const QJsonValue &errorValue)
 
     const QString text = errorValue.toString().trimmed().toLower();
     Classification result;
+    if (text.contains(QStringLiteral("context_length"))
+        || text.contains(QStringLiteral("context length"))
+        || text.contains(QStringLiteral("context_window"))
+        || text.contains(QStringLiteral("context window"))
+        || text.contains(QStringLiteral("maximum context"))
+        || text.contains(QStringLiteral("max context"))
+        || text.contains(QStringLiteral("prompt is too long"))
+        || text.contains(QStringLiteral("prompt too long"))
+        || text.contains(QStringLiteral("too many tokens"))
+        || text.contains(QStringLiteral("token limit"))) {
+        result.isContextWindowExceeded = true;
+        result.retryable = false;
+        return result;
+    }
     result.retryable = text.contains(QStringLiteral("overloaded"))
         || text.contains(QStringLiteral("rate limit"))
         || text.contains(QStringLiteral("too many requests"))

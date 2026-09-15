@@ -53,7 +53,7 @@ GD_FIELD(qint64,  compactReserveTokens,        16384)
 GD_FIELD(qint64,  compactTargetTokens,         40000)
 GD_FIELD(int,     compactMaxRetries,           2)
 GD_FIELD(qint64,  compactUserMessageTokenBudget, 20000)
-GD_FIELD(int,     compactMaxOutputTokens,      80000)
+GD_FIELD(int,     compactMaxOutputTokens,      8192)
 /// 轮后段摘要总开关（仅主代理生效；子代理忽略）
 GD_FIELD(bool,    summaryEnabled,              true)
 /// 段摘要入队：自上次成功摘要起累计新增估 token 阈值（默认 180000）

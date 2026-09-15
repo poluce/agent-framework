@@ -51,7 +51,8 @@ void SummaryJobQueue::setCompactConfig(const CompactConfig &config)
 }
 
 QString SummaryJobQueue::enqueue(const QList<QString> &spanEntryIds,
-                                 const QList<ConversationMessage> &snapshot)
+                                 const QList<ConversationMessage> &snapshot,
+                                 const QString &priorContext)
 {
     if (spanEntryIds.isEmpty() || snapshot.isEmpty()) {
         return {};
@@ -76,6 +77,9 @@ QString SummaryJobQueue::enqueue(const QList<QString> &spanEntryIds,
             snapSeen.insert(m.id);
             tail.payloadSnapshot.append(m);
         }
+        if (tail.priorContext.isEmpty() && !priorContext.isEmpty()) {
+            tail.priorContext = priorContext;
+        }
         LOGI(LogCat::Agent) << "段摘要合并入队"
             << logf("jobId", tail.jobId)
             << logf("span", tail.spanEntryIds.size())
@@ -87,6 +91,7 @@ QString SummaryJobQueue::enqueue(const QList<QString> &spanEntryIds,
     job.jobId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     job.spanEntryIds = spanEntryIds;
     job.payloadSnapshot = snapshot;
+    job.priorContext = priorContext;
     job.state = SummaryJobState::Pending;
     m_jobs.append(std::move(job));
     LOGI(LogCat::Agent) << "段摘要入队"
@@ -200,7 +205,8 @@ void SummaryJobQueue::startNext(const bool resumeFailed)
         m_credentialStore,
         m_providerFactory,
         m_modelName,
-        m_activeProvider);
+        m_activeProvider,
+        job.priorContext);
 }
 
 void SummaryJobQueue::finishCurrent(const bool success, const QString &text)

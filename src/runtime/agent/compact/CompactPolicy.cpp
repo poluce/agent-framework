@@ -3,6 +3,8 @@
 #include "agent/ProviderRunLedger.h"
 #include "types/ConversationMessage.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QList>
 #include <QStringList>
 
@@ -69,8 +71,34 @@ QString frameCheckpoint(const QString &summary)
         + QString::fromUtf8(kSummaryCloseTag);
 }
 
+qint64 estimateEntryTokens(const ConversationMessage &entry)
+{
+    qint64 tokens = estimateContextTokensForText(entry.text);
+    if (!entry.toolName.isEmpty()) {
+        tokens += estimateContextTokensForText(entry.toolName);
+    }
+    if (!entry.reasoningContent.isEmpty()) {
+        tokens += estimateContextTokensForText(entry.reasoningContent);
+    }
+    if (!entry.toolCall.rawInputJson.isEmpty()) {
+        tokens += estimateContextTokensForText(entry.toolCall.rawInputJson);
+    } else if (!entry.toolInput.isEmpty()) {
+        tokens += estimateContextTokensForText(
+            QString::fromUtf8(QJsonDocument(entry.toolInput).toJson(QJsonDocument::Compact)));
+    } else if (!entry.toolCall.input.isEmpty()) {
+        tokens += estimateContextTokensForText(
+            QString::fromUtf8(QJsonDocument(entry.toolCall.input).toJson(QJsonDocument::Compact)));
+    }
+    return tokens;
+}
+
 bool isContextWindowExceeded(const ProviderError &error)
 {
+    if (error.code == QLatin1String(kErrorContextWindowExceeded)
+        || error.code == QLatin1String("context_window_exceeded")
+        || error.code == QLatin1String("context_length_exceeded")) {
+        return true;
+    }
     const QString blob = (error.code + QLatin1Char(' ') + error.message).toLower();
     if (blob.isEmpty()) {
         return false;

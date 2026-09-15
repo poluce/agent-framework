@@ -743,6 +743,8 @@ void AbstractLoop::start(const SessionRuntime &config)
         << logf("sessionUuid", m_sessionUuid);
 
     m_activeTurnId = nextTurnId();
+    m_overflowRetriesLeft = CompactPolicy::kMaxOverflowRetries;
+    m_overflowError.clear();
     const PendingMessage pending = m_nextTurnQueue.takeFirst();
 
     // 先上墙：首次创建新条目，重试则复用已有条目
@@ -1304,7 +1306,28 @@ void AbstractLoop::startProviderTurnImpl(qint64 contextTokenEstimate)
 void AbstractLoop::continueAfterCompaction()
 {
     m_waitingBoundarySummary = false;
-    startProviderTurnImpl();
+    updateContextTokenEstimate();
+    const qint64 window = (m_activeConfig && m_activeConfig->contextWindow > 0)
+        ? m_activeConfig->contextWindow
+        : ModelContextMetaStore::kDefaultContextWindow;
+
+    if (m_currentContextTokenEstimate > window) {
+        LOGW(LogCat::Agent, logContext()) << "压缩后仍超出模型窗口"
+            << logf("tokens", m_currentContextTokenEstimate)
+            << logf("window", window);
+        if (!m_overflowError.isEmpty()) {
+            failOverflowCompaction();
+        } else {
+            const QString msg = QStringLiteral("上下文压缩后（%1 tokens）仍超出模型窗口（%2 tokens）。")
+                .arg(m_currentContextTokenEstimate)
+                .arg(window);
+            failTurn(msg);
+            emitProtocolEvent(core_ir::EventError{m_agentId, msg});
+        }
+        return;
+    }
+
+    startProviderTurnImpl(m_currentContextTokenEstimate);
 }
 
 void AbstractLoop::beginManualCompaction()
@@ -2072,6 +2095,9 @@ QString AbstractLoop::nextTurnId()
 
 bool AbstractLoop::ensureProvider()
 {
+    if (!m_activeConfig) {
+        return false;
+    }
     const QString requestedProviderType = ProviderService::normalizeProviderType(m_activeConfig->providerType);
     if (m_provider && m_activeProviderType != requestedProviderType) {
         LOGD(LogCat::Provider, logContext()) << "Provider 类型变化，重建实例"

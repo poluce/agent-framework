@@ -27,6 +27,7 @@ struct SummaryJob {
     QString jobId;
     QList<QString> spanEntryIds;
     QList<ConversationMessage> payloadSnapshot;
+    QString priorContext;
     SummaryJobState state = SummaryJobState::Pending;
     QString failReason;
 };
@@ -57,7 +58,8 @@ public:
 
     /// 入队一段；返回 jobId（空=拒绝）
     QString enqueue(const QList<QString> &spanEntryIds,
-                    const QList<ConversationMessage> &snapshot);
+                    const QList<ConversationMessage> &snapshot,
+                    const QString &priorContext = {});
 
     void kick();
     /// 仅中止在飞 job（进度丢弃）；pending/failed 保留

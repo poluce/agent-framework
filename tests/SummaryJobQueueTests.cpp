@@ -24,6 +24,7 @@ private slots:
     void fail_keepsJobAsFailed();
     void abortRunning_keepsPendingNotFailed();
     void serial_twoJobs();
+    void enqueue_injectsPriorContextIntoPrompt();
 };
 
 namespace {
@@ -34,6 +35,7 @@ int g_createCount = 0;
 int g_startCount = 0;
 bool g_forceFail = false;
 bool g_forceHang = false; // start 后不回事件，便于 abort
+ProviderRequest g_lastRequest;
 
 class SummaryQueueFakeProvider final : public AbstractProvider
 {
@@ -45,7 +47,11 @@ public:
     }
 
 protected:
-    ProviderError validateProviderRequest(const ProviderRequest &) const override { return {}; }
+    ProviderError validateProviderRequest(const ProviderRequest &req) const override
+    {
+        g_lastRequest = req;
+        return {};
+    }
     ProviderTransportRequest buildProviderTransportRequest(const ProviderRequest &) const override
     {
         ProviderTransportRequest t;
@@ -260,6 +266,24 @@ void SummaryJobQueueTests::serial_twoJobs()
     QTRY_COMPARE_WITH_TIMEOUT(g_startCount, 2, 5000);
     QCOMPARE(fx.queue.jobCount(), 0);
     QVERIFY(fx.queue.isIdle());
+}
+
+void SummaryJobQueueTests::enqueue_injectsPriorContextIntoPrompt()
+{
+    QueueFixture fx;
+    QVERIFY(fx.init(QStringLiteral("prior-ctx-test")));
+    g_lastRequest = {};
+
+    const ConversationMessage e = makeSnapEntry(QStringLiteral("当前对话内容"));
+    QVERIFY(!fx.queue.enqueue({e.id}, {e}, QStringLiteral("前置背景：第一阶段已选定方案B")).isEmpty());
+    fx.queue.kick();
+
+    QTRY_COMPARE_WITH_TIMEOUT(fx.queue.jobCount(), 0, 3000);
+    QVERIFY(!g_lastRequest.items.isEmpty());
+    const QString text = g_lastRequest.items.first().parts.first().text;
+    QVERIFY(text.contains(QStringLiteral("【前置背景参考（只读）】")));
+    QVERIFY(text.contains(QStringLiteral("前置背景：第一阶段已选定方案B")));
+    QVERIFY(text.contains(QStringLiteral("当前对话内容")));
 }
 
 QTEST_MAIN(SummaryJobQueueTests)

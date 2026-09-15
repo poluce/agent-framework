@@ -19,6 +19,8 @@ private slots:
     void frameCheckpoint_skipsAlreadyTagged();
     void selectPrefix_keepsRecentTail();
     void overflow_detectsContextLength();
+    void overflow_detectsStandardErrorCode();
+    void estimateEntryTokens_countsToolInputAndReasoning();
     void summaryShrinks_requiresStrictlySmaller();
 };
 
@@ -111,6 +113,31 @@ void CompactPolicyTests::overflow_detectsContextLength()
     ProviderError miss;
     miss.message = QStringLiteral("rate limit exceeded");
     QVERIFY(!CompactPolicy::isContextWindowExceeded(miss));
+}
+
+void CompactPolicyTests::overflow_detectsStandardErrorCode()
+{
+    ProviderError err;
+    err.code = QString::fromLatin1(CompactPolicy::kErrorContextWindowExceeded);
+    err.message = QStringLiteral("custom message without any keywords");
+    QVERIFY(CompactPolicy::isContextWindowExceeded(err));
+}
+
+void CompactPolicyTests::estimateEntryTokens_countsToolInputAndReasoning()
+{
+    ConversationMessage call;
+    call.kind = ConversationMessage::Kind::ToolCall;
+    call.toolName = QStringLiteral("write_file");
+    call.toolCall.rawInputJson = QString(400, QLatin1Char('x'));
+    // entry.text is empty, but toolCall.rawInputJson has 400 chars
+    QCOMPARE(estimateContextTokensForText(call.text), 0);
+    const qint64 tokens = CompactPolicy::estimateEntryTokens(call);
+    QVERIFY(tokens > 80);
+
+    ConversationMessage reasoning;
+    reasoning.kind = ConversationMessage::Kind::AssistantReasoning;
+    reasoning.reasoningContent = QString(200, QLatin1Char('r'));
+    QVERIFY(CompactPolicy::estimateEntryTokens(reasoning) > 40);
 }
 
 void CompactPolicyTests::summaryShrinks_requiresStrictlySmaller()

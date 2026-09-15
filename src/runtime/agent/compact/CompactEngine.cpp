@@ -158,14 +158,25 @@ struct MaterialBlock
     QString text;
 };
 
-QString taskShell(const QString &material)
+QString taskShell(const QString &material, const QString &priorContext = {})
 {
-    return QStringLiteral(
-               "请基于下列对话材料，为即将接手的模型写一份交接摘要。\n"
-               "只输出摘要正文，禁止调用工具、禁止输出 tool_calls/DSML/函数调用 JSON、禁止复述整段材料。\n\n"
-               "===== 材料开始 =====\n")
+    QString shell = QStringLiteral(
+        "请基于下列对话材料，为即将接手的模型写一份交接摘要。\n"
+        "只输出摘要正文，禁止调用工具、禁止输出 tool_calls/DSML/函数调用 JSON、禁止复述整段材料。\n\n");
+    if (!priorContext.trimmed().isEmpty()) {
+        constexpr qint64 kPriorContextCapTokens = 1500;
+        const QString cappedCtx = trimTextToBudget(priorContext.trimmed(), kPriorContextCapTokens);
+        shell += QStringLiteral(
+            "【前置背景参考（只读）】\n"
+            "下列前置背景仅用于帮助理解本段材料中的代词、方案编号与上下文依赖，禁止在输出中复述或改写前置背景，仅总结本段材料中新发生的事实：\n"
+            "----- 前置背景开始 -----\n")
+            + cappedCtx
+            + QStringLiteral("\n----- 前置背景结束 -----\n\n");
+    }
+    shell += QStringLiteral("===== 材料开始 =====\n")
         + material
         + QStringLiteral("\n===== 材料结束 =====");
+    return shell;
 }
 
 } // namespace
@@ -295,7 +306,8 @@ void CompactEngine::startSummaryOnly(
     ProviderCredential *credentialStore,
     const std::function<std::unique_ptr<AbstractProvider>(const QString &)> &providerFactory,
     const QString &modelName,
-    AbstractProvider *activeProvider
+    AbstractProvider *activeProvider,
+    const QString &priorContext
 )
 {
     if (m_running) {
@@ -319,12 +331,14 @@ void CompactEngine::startSummaryOnly(
     m_compactedIds.clear();
     m_selectedEntries = snapshot;
     m_summaryText.clear();
+    m_priorContext = priorContext;
     m_retryCount = 0;
     m_summaryOnly = true;
     m_running = true;
 
     LOGI(LogCat::Agent) << "段摘要引擎启动"
-        << logf("entries", m_selectedEntries.size());
+        << logf("entries", m_selectedEntries.size())
+        << logf("hasPriorContext", !m_priorContext.isEmpty());
     startRequest();
 }
 
@@ -393,7 +407,7 @@ void CompactEngine::startRequest()
             ? m_promptBuilder->segmentSystemPrompt()
             : SystemPromptBuilder::builtinSegmentSystemPrompt();
         request.items = CompactEngine::buildDocumentCompactInput(
-            m_selectedEntries, config.userMessageTokenBudget);
+            m_selectedEntries, config.userMessageTokenBudget, m_priorContext);
         request.tools = {};
     } else {
         const QString instruction = m_promptBuilder
@@ -466,8 +480,13 @@ void CompactEngine::finishWithSummary()
 
     if (!m_summaryOnly) {
         qint64 sourceTokens = 0;
-        for (const ConversationMessage &entry : m_selectedEntries) {
-            sourceTokens += estimateContextTokensForText(entry.text);
+        if (m_ledger) {
+            sourceTokens = m_ledger->estimatedTokensForEntries(m_compactedIds);
+        }
+        if (sourceTokens <= 0) {
+            for (const ConversationMessage &entry : m_selectedEntries) {
+                sourceTokens += CompactPolicy::estimateEntryTokens(entry);
+            }
         }
         const qint64 summaryTokens = estimateContextTokensForText(m_summaryText);
         if (!CompactPolicy::summaryShrinks(sourceTokens, summaryTokens)) {
@@ -568,6 +587,7 @@ void CompactEngine::resetState()
     m_retryCount = 0;
     m_running = false;
     m_summaryOnly = false;
+    m_priorContext.clear();
     m_replay = {};
 }
 
@@ -814,18 +834,19 @@ QList<ProviderItem> CompactEngine::buildBulkReplayItems(
 
 QList<ProviderItem> CompactEngine::buildDocumentCompactInput(
     const QList<ConversationMessage> &entries,
-    const qint64 tokenBudget)
+    const qint64 tokenBudget,
+    const QString &priorContext)
 {
     // 任务外壳占少量预算；材料用剩余额度
-    const QString emptyShell = taskShell(QString());
+    const QString emptyShell = taskShell(QString(), priorContext);
     const qint64 shellTokens = estimateContextTokensForText(emptyShell);
     const qint64 materialBudget = qMax<qint64>(0, tokenBudget - shellTokens);
     const QString material = buildDocumentMaterial(entries, materialBudget);
     if (material.isEmpty()) {
         // 材料为空时仍给任务句，避免 provider 收到空 user
-        return {ProviderItem::makeUserText(taskShell(QStringLiteral("（无可摘要材料）")))};
+        return {ProviderItem::makeUserText(taskShell(QStringLiteral("（无可摘要材料）"), priorContext))};
     }
-    return {ProviderItem::makeUserText(taskShell(material))};
+    return {ProviderItem::makeUserText(taskShell(material, priorContext))};
 }
 
 SummaryValidation CompactEngine::validateSummaryText(const QString &text)

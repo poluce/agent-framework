@@ -1278,6 +1278,30 @@ QList<ProviderItem> ProviderRunLedger::replayItemsForEntries(const QList<QString
     return hydrateItemsForRequest(std::move(items), hydrateError);
 }
 
+qint64 ProviderRunLedger::estimatedTokensForEntries(const QList<QString> &entryIds) const
+{
+    if (entryIds.isEmpty()) {
+        return 0;
+    }
+    const QSet<QString> wanted(entryIds.cbegin(), entryIds.cend());
+    qint64 total = 0;
+    for (const ProviderRecord &record : m_providerRecords) {
+        if (!wanted.contains(record.entryId) || record.compacted) {
+            continue;
+        }
+        if (!isReplayableReasoningItem(record.item)) {
+            continue;
+        }
+        qint64 tokens = record.tokenEstimate;
+        if (tokens < 0) {
+            tokens = estimateContextTokensForItem(record.item);
+            record.tokenEstimate = tokens;
+        }
+        total += tokens;
+    }
+    return total;
+}
+
 qint64 ProviderRunLedger::estimatedContextTokens(const qint64 requestOverheadTokens)
 {
     // 直接扫 providerRecords：不 buildRequest、不 hydrate blob——估算只读文本/元数据

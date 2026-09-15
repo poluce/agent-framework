@@ -270,6 +270,10 @@ struct ProviderUsage
     qint64 sequence = 0;       ///< 事件序号（流式对齐用）
 };
 
+namespace ProviderErrorCodes {
+inline constexpr auto ContextWindowExceeded = "context_window_exceeded";
+}
+
 /**
  * @brief 协议层统一错误描述
  *

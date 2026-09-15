@@ -255,6 +255,11 @@ int CompactPipeline::jobCount() const
     return m_queue ? m_queue->jobCount() : 0;
 }
 
+bool CompactPipeline::isCompacting() const
+{
+    return m_engine && m_engine->isRunning();
+}
+
 bool CompactPipeline::waitingAtBoundary() const
 {
     return m_waitingSummaryAtBoundary;
@@ -295,10 +300,6 @@ QJsonObject CompactPipeline::exportState() const
 
 void CompactPipeline::importState(const QJsonObject &obj)
 {
-    if (!m_queue) {
-        clear();
-        return;
-    }
     m_summaryStore->fromJson(obj.value(QStringLiteral("summaryStore")).toObject());
     m_modelViewStore->fromJson(obj.value(QStringLiteral("modelView")).toObject());
     m_lastSummarizedEntryId = obj.value(QStringLiteral("lastSummarizedEntryId")).toString();
@@ -402,7 +403,7 @@ void CompactPipeline::onCompactionFinished(const bool success)
     if (success) {
         const QString bulkText = m_engine->lastBulkSummaryText();
         const QList<QString> bulkIds = m_engine->lastBulkCompactedIds();
-        if (m_queue && !bulkText.trimmed().isEmpty()) {
+        if (!bulkText.trimmed().isEmpty()) {
             SummaryRecord rec;
             rec.summaryId = QUuid::createUuid().toString(QUuid::WithoutBraces);
             rec.spanEntryIds = bulkIds;
@@ -418,9 +419,7 @@ void CompactPipeline::onCompactionFinished(const bool success)
             syncModelViewPrefixFromStore();
             emitContextCompactedNotice(core_ir::CompactReason::Bulk);
         } else {
-            emitContextCompactedNotice(bulkText.trimmed().isEmpty()
-                                           ? core_ir::CompactReason::Truncate
-                                           : core_ir::CompactReason::Bulk);
+            emitContextCompactedNotice(core_ir::CompactReason::Truncate);
         }
     }
 
@@ -487,9 +486,13 @@ void CompactPipeline::maybeEnqueueSegmentSummary()
     if (!summaryFeaturesEnabled() || !m_loop) {
         return;
     }
-    const qint64 threshold = m_runtime.summarySegmentTokens > 0
+    const qint64 baseThreshold = m_runtime.summarySegmentTokens > 0
         ? m_runtime.summarySegmentTokens
         : 180000;
+    const qint64 window = m_runtime.contextWindow > 0
+        ? m_runtime.contextWindow
+        : ModelTokenDefaults::kContextWindow;
+    const qint64 threshold = qMin(baseThreshold, qMax<qint64>(1000, window * 35 / 100));
     const QString afterId = segmentSummaryCursor();
     const qint64 added = ModelViewAssembler::estimateTokensSince(m_loop->ledger(), afterId);
     if (added < threshold) {
@@ -504,7 +507,11 @@ void CompactPipeline::maybeEnqueueSegmentSummary()
         return;
     }
     const QList<QString> spanIds = ModelViewAssembler::entryIdsOf(snapshot);
-    const QString jobId = m_queue->enqueue(spanIds, snapshot);
+    QString priorContext;
+    if (m_summaryStore && !m_summaryStore->isEmpty()) {
+        priorContext = m_summaryStore->records().last().text.trimmed();
+    }
+    const QString jobId = m_queue->enqueue(spanIds, snapshot, priorContext);
     if (jobId.isEmpty()) {
         return;
     }
@@ -597,17 +604,10 @@ void CompactPipeline::applyAssembledModelView()
 
 void CompactPipeline::syncModelViewPrefixFromStore()
 {
-    if (!m_queue) {
-        m_modelViewStore->clear();
-        if (m_loop) {
-            m_loop->clearModelViewPrefix();
-        }
-        return;
-    }
     m_modelViewStore->syncFromSummaryStore(*m_summaryStore);
 
     QList<QString> prefixes = m_modelViewStore->prefixTexts();
-    if (!prefixes.isEmpty() && m_loop) {
+    if (!prefixes.isEmpty() && m_loop && m_queue) {
         const int recentTurns = m_runtime.summaryRecentTurns > 0 ? m_runtime.summaryRecentTurns : 5;
         const QList<QString> recentUsers =
             ModelViewAssembler::collectRecentUserTexts(m_loop->ledger(), recentTurns);

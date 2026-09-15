@@ -70,6 +70,7 @@ public:
 
     // ── 生命周期 ──
     void start(const SessionRuntime &config);
+    void activateConfig(const SessionRuntime &config);
     /// 失败收口后：复用账本里上一轮用户消息再开一轮（不重记用户话、不依赖 next 队列）。
     /// @return 已受理并进入 Busy
     [[nodiscard]] bool retryLastFailedTurn(const SessionRuntime &config);
@@ -225,7 +226,6 @@ private:
     QString sessionShortId() const;
     void refreshRuntimeLogContexts();
     SessionRuntime nextQueuedConfig() const;
-    void activateConfig(const SessionRuntime &config);
 
     // ── Provider 连接 ──
     bool ensureProvider();

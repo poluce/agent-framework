@@ -85,6 +85,8 @@ public:
     /// 按线路顺序收集指定 entry 的可回放项（规则同 buildRequest：跳过 compacted / 空推理，hydrate）。
     [[nodiscard]] QList<ProviderItem> replayItemsForEntries(const QList<QString> &entryIds,
                                                            QString *hydrateError = nullptr) const;
+    /// 统计指定 entry 集合在线路记录中的 token 占用估算（用于压缩变短校验等精确比对）
+    [[nodiscard]] qint64 estimatedTokensForEntries(const QList<QString> &entryIds) const;
     /**
      * 当前可回放上下文占用估算（O(记录数)，无 hydrate / 无 buildRequest）。
      * 可选 overhead：系统提示 + 工具 schema 等请求级固定开销。

@@ -1,5 +1,6 @@
 #include "ModelViewAssembler.h"
 
+#include "CompactPolicy.h"
 #include "CompactToolPair.h"
 #include "agent/ProviderRunLedger.h"
 
@@ -30,14 +31,7 @@ bool isSummarizable(const ConversationMessage &entry)
 
 qint64 estimateEntryTokens(const ConversationMessage &entry)
 {
-    qint64 tokens = estimateContextTokensForText(entry.text);
-    if (!entry.toolName.isEmpty()) {
-        tokens += estimateContextTokensForText(entry.toolName);
-    }
-    if (!entry.reasoningContent.isEmpty()) {
-        tokens += estimateContextTokensForText(entry.reasoningContent);
-    }
-    return tokens;
+    return CompactPolicy::estimateEntryTokens(entry);
 }
 
 /// 从尾部回溯，找到「最近 K 个用户轮」起点在 entries 中的下标；K<=0 视为 0

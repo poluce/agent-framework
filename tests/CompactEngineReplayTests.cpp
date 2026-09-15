@@ -1,10 +1,15 @@
 #include <QtTest>
 
-#include "agent/compact/CompactEngine.h"
+#include "agent/AbstractLoop.h"
+#include "agent/Agent.h"
 #include "agent/ProviderRunLedger.h"
+#include "agent/compact/CompactEngine.h"
+#include "agent/compact/CompactPipeline.h"
+#include "agent/compact/CompactPolicy.h"
 #include "providers/core/AbstractProvider.h"
 #include "providers/service/ProviderCredential.h"
 
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QUuid>
 
@@ -19,6 +24,10 @@ private slots:
     void buildBulkReplay_emptyWhenNoProviderRecords();
     void start_sendsReplayPrefixNotDocument();
     void start_fallsBackToDocumentWithoutReplayItems();
+    void estimatedTokensForEntries_matchesItemEstimates();
+    void pruneToolResults_skipsCompactionWhenBelowThreshold();
+    void continueAfterCompaction_failsWhenStillOverWindow();
+    void overflowRecovery_triggersCompactionAndRetriesTurn();
 };
 
 namespace {
@@ -42,6 +51,7 @@ public:
     ReplayFakeProvider()
         : AbstractProvider(QString::fromLatin1(kReplayProvider), nullptr)
     {
+        seedAvailableModels({});
     }
 
 protected:
@@ -86,6 +96,82 @@ protected:
     {
         return {};
     }
+};
+
+class OverflowRecoveryFakeProvider final : public AbstractProvider
+{
+public:
+    explicit OverflowRecoveryFakeProvider(int *turnRequestCount)
+        : AbstractProvider(QString::fromLatin1(kReplayProvider), nullptr)
+        , m_turnRequestCount(turnRequestCount)
+    {
+        setAuth({QStringLiteral("https://example.test"), QStringLiteral("key"), QStringLiteral("test-model")});
+        ModelCapabilities caps;
+        caps.modelId = QStringLiteral("test-model");
+        caps.enable(ProviderCapability::TextInput).enable(ProviderCapability::TextOutput);
+        seedAvailableModels({caps});
+    }
+
+protected:
+    ProviderError validateProviderRequest(const ProviderRequest &req) const override
+    {
+        m_lastRequestIsCompaction = !req.items.isEmpty()
+            && itemText(req.items.last()).contains(QStringLiteral("Primary Request and Intent"));
+        return {};
+    }
+    ProviderTransportRequest buildProviderTransportRequest(const ProviderRequest &) const override
+    {
+        ProviderTransportRequest t;
+        t.body = "{}";
+        return t;
+    }
+    QList<ProviderEvent> parseProviderTransportPayload(const ProviderTransportPayload &) override { return {}; }
+    void resetProviderTurnState() override {}
+    bool startProviderTransportRequest(const ProviderTransportRequest &, ProviderError *) override
+    {
+        QTimer::singleShot(0, this, [this]() {
+            if (m_lastRequestIsCompaction) {
+                emitProviderEvent(ProviderEvent::fromTextDelta(QStringLiteral(
+                    "## Primary Request and Intent\n- recover from overflow\n"
+                    "## Key Technical Concepts\n- (none)\n"
+                    "## Files and Code\n- (none)\n"
+                    "## Errors and Fixes\n- (none)\n"
+                    "## Pending Jobs\n- (none)\n"
+                    "## Current Work\n- compacted\n"
+                    "## Next Step\n- (none)\n"
+                    "## Critical Context\n- (none)")));
+                ProviderMessageEnd end;
+                end.messageId = QStringLiteral("compact-end");
+                end.stopReason = StopReason::EndTurn;
+                emitProviderEvent(ProviderEvent::messageCompleted(end));
+                return;
+            }
+
+            if (m_turnRequestCount) {
+                ++(*m_turnRequestCount);
+                if (*m_turnRequestCount == 1) {
+                    ProviderError err;
+                    err.code = QString::fromLatin1(ProviderErrorCodes::ContextWindowExceeded);
+                    err.message = QStringLiteral("maximum context length exceeded");
+                    emitProviderEvent(ProviderEvent::fromError(err));
+                    return;
+                }
+            }
+
+            emitProviderEvent(ProviderEvent::fromTextDelta(QStringLiteral("ok turn done")));
+            ProviderMessageEnd end;
+            end.messageId = QStringLiteral("turn-end");
+            end.stopReason = StopReason::EndTurn;
+            emitProviderEvent(ProviderEvent::messageCompleted(end));
+        });
+        return true;
+    }
+    QUrl buildModelsUrl(const QString &) const override { return {}; }
+    QList<ModelCapabilities> parseModelsPayload(const QByteArray &, QString *) const override { return {}; }
+
+private:
+    int *m_turnRequestCount = nullptr;
+    mutable bool m_lastRequestIsCompaction = false;
 };
 
 QString makeCredential(ProviderCredential *cred)
@@ -240,6 +326,114 @@ void CompactEngineReplayTests::start_fallsBackToDocumentWithoutReplayItems()
     QCOMPARE(g_lastRequest.items.size(), 1);
     QVERIFY(g_lastRequest.systemPrompt.contains(QStringLiteral("Primary Request and Intent")));
     QVERIFY(g_lastRequest.systemPrompt.contains(QStringLiteral("compacted-summary")));
+}
+
+void CompactEngineReplayTests::estimatedTokensForEntries_matchesItemEstimates()
+{
+    ProviderRunLedger ledger;
+    const QString uId = ledger.appendProviderItem(
+        ProviderItem::makeUserText(QString(200, QLatin1Char('u'))));
+    const QString callId = ledger.appendProviderItem(
+        ProviderItem::makeFunctionCall(QStringLiteral("c1"), QStringLiteral("tool"),
+                                       QJsonObject{}, QString(400, QLatin1Char('a'))));
+
+    const qint64 total = ledger.estimatedTokensForEntries({uId, callId});
+    QVERIFY(total > 100);
+
+    const qint64 callOnly = ledger.estimatedTokensForEntries({callId});
+    QVERIFY(callOnly > 60);
+    QVERIFY(callOnly < total);
+}
+
+void CompactEngineReplayTests::pruneToolResults_skipsCompactionWhenBelowThreshold()
+{
+    AbstractLoop loop;
+    CompactPipeline pipeline(QStringLiteral("test-agent"));
+    pipeline.setLoop(&loop);
+
+    SessionRuntime runtime;
+    runtime.workingDirectory = QStringLiteral("/tmp");
+    runtime.compactEnabled = true;
+    runtime.summaryEnabled = false;
+    runtime.contextWindow = 10000;
+    runtime.providerType = QString::fromLatin1(kReplayProvider);
+    loop.activateConfig(runtime);
+    loop.setProviderFactory([](const QString &) {
+        return std::make_unique<ReplayFakeProvider>();
+    });
+    pipeline.setRuntime(runtime);
+
+    loop.ledger().appendProviderItem(ProviderItem::makeUserText(QStringLiteral("hello")));
+    loop.ledger().appendProviderItem(ProviderItem::makeFunctionCall(
+        QStringLiteral("c1"), QStringLiteral("bash"), QJsonObject{}, QStringLiteral("{}")));
+    loop.ledger().appendProviderItem(ProviderItem::makeFunctionCallOutput(
+        QStringLiteral("c1"), QStringLiteral("bash"), QString(9000, QLatin1Char('x'))));
+
+    const qint64 unpruned = loop.ledger().estimatedContextTokens();
+    const qint64 threshold = unpruned - 200;
+
+    pipeline.onCompactionRequested(unpruned, threshold);
+
+    QVERIFY(!pipeline.isCompacting());
+    QVERIFY(loop.ledger().estimatedContextTokens() <= threshold);
+}
+
+void CompactEngineReplayTests::continueAfterCompaction_failsWhenStillOverWindow()
+{
+    AbstractLoop loop;
+    SessionRuntime runtime;
+    runtime.workingDirectory = QStringLiteral("/tmp");
+    runtime.compactEnabled = true;
+    runtime.contextWindow = 50;
+
+    loop.activateConfig(runtime);
+    loop.ledger().appendProviderItem(ProviderItem::makeUserText(QString(400, QLatin1Char('z'))));
+
+    loop.continueAfterCompaction();
+
+    QCOMPARE(loop.phase(), AbstractLoop::Phase::Failed);
+    QVERIFY(loop.lastError().contains(QStringLiteral("超出模型窗口")));
+}
+
+void CompactEngineReplayTests::overflowRecovery_triggersCompactionAndRetriesTurn()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+
+    SessionRuntime runtime;
+    runtime.workingDirectory = tmp.path();
+    runtime.compactEnabled = true;
+    runtime.summaryEnabled = false;
+    runtime.contextWindow = 500000;
+    runtime.providerType = QString::fromLatin1(kReplayProvider);
+    runtime.modelName = QStringLiteral("test-model");
+
+    ProviderCredential cred;
+    const QString instanceId = makeCredential(&cred);
+    runtime.credentialInstanceId = instanceId;
+
+    int turnCount = 0;
+    Agent agent(QStringLiteral("overflow-agent"), QStringLiteral("Test"), runtime);
+    agent.setCredentialStore(&cred);
+    agent.setProviderFactory([&](const QString &) {
+        return std::make_unique<OverflowRecoveryFakeProvider>(&turnCount);
+    });
+
+    // 塞入前置轮次（供超窗大压选型回放）
+    agent.loop()->ledger().appendProviderItem(
+        ProviderItem::makeUserText(QString(200, QLatin1Char('u'))));
+    agent.loop()->ledger().appendProviderItem(
+        ProviderItem::makeAssistantText(QString(200, QLatin1Char('a'))));
+
+    // 发起新一轮任务
+    agent.loop()->enqueueUserMessage(QStringLiteral("do work"));
+    agent.loop()->start(runtime);
+
+    // 首次请求命中超窗 -> 触发 overflowCompaction -> 强制大压 -> 自动继续当前轮并成功
+    QTRY_VERIFY_WITH_TIMEOUT(agent.loop()->phase() == AbstractLoop::Phase::Completed, 5000);
+    QCOMPARE(turnCount, 2);
+    QVERIFY(!agent.loop()->modelViewPrefixTexts().isEmpty());
+    QVERIFY(agent.loop()->modelViewPrefixTexts().first().contains(QStringLiteral("recover from overflow")));
 }
 
 QTEST_MAIN(CompactEngineReplayTests)

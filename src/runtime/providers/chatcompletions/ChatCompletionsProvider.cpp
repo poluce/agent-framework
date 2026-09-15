@@ -573,6 +573,10 @@ QList<ProviderEvent> ChatCompletionsProvider::handleChunk(const QJsonObject &chu
         const ProviderRetry::Classification cls =
             ProviderRetry::classifyApiErrorValue(errorValue);
         error.retryable = cls.retryable;
+        if (cls.isContextWindowExceeded) {
+            error.code = QString::fromLatin1(ProviderErrorCodes::ContextWindowExceeded);
+            error.retryable = false;
+        }
         emitErrorOccurred(error);
         return {};
     }

@@ -55,6 +55,7 @@ public:
 
     [[nodiscard]] bool hasQueue() const;
     [[nodiscard]] int jobCount() const;
+    [[nodiscard]] bool isCompacting() const;
     [[nodiscard]] bool waitingAtBoundary() const;
     [[nodiscard]] bool storeEmpty() const;
     [[nodiscard]] int recordCount() const;

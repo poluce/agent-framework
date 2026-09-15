@@ -7,6 +7,7 @@
 #include <QString>
 
 class ProviderRunLedger;
+struct ConversationMessage;
 
 /**
  * 压缩策略常量与纯函数：窗口比例、工具结果修剪、检查点框、超窗判定。
@@ -14,6 +15,7 @@ class ProviderRunLedger;
  */
 namespace CompactPolicy {
 
+inline constexpr auto kErrorContextWindowExceeded = ProviderErrorCodes::ContextWindowExceeded;
 inline constexpr double kThresholdRatio = 0.8;
 inline constexpr double kRetainRatio = 0.16;
 inline constexpr int kPruneThresholdChars = 8192;
@@ -61,6 +63,9 @@ inline constexpr auto kPruneMarker = "\n[...middle pruned...]\n";
 int pruneOversizedToolResults(ProviderRunLedger &ledger);
 
 [[nodiscard]] QString frameCheckpoint(const QString &summary);
+
+/// 统一单条条目上下文 token 估算（正文 + toolName + reasoning + toolInput/arguments）
+[[nodiscard]] qint64 estimateEntryTokens(const ConversationMessage &entry);
 
 [[nodiscard]] bool isContextWindowExceeded(const ProviderError &error);
 

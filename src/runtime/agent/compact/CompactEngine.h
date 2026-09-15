@@ -50,10 +50,11 @@ public:
     [[nodiscard]] static QString buildDocumentMaterial(
         const QList<ConversationMessage> &entries,
         qint64 tokenBudget);
-    /// 单条 UserText：任务句 + 文档材料（段摘要）
+    /// 单条 UserText：任务句 + （可选前置背景） + 文档材料（段摘要）
     [[nodiscard]] static QList<ProviderItem> buildDocumentCompactInput(
         const QList<ConversationMessage> &entries,
-        qint64 tokenBudget);
+        qint64 tokenBudget,
+        const QString &priorContext = {});
     /// 大压 items：模型视图前缀 + 被压区间线路回放 + compact.md 末条 user。
     /// 线路项为空则返回空（调用方回落抽材料）。
     [[nodiscard]] static QList<ProviderItem> buildBulkReplayItems(
@@ -85,7 +86,8 @@ public:
         ProviderCredential *credentialStore,
         const std::function<std::unique_ptr<AbstractProvider>(const QString &)> &providerFactory,
         const QString &modelName,
-        AbstractProvider *activeProvider = nullptr
+        AbstractProvider *activeProvider = nullptr,
+        const QString &priorContext = {}
     );
     void cancel();
     [[nodiscard]] bool isRunning() const;
@@ -148,6 +150,7 @@ private:
     bool m_running = false;
     /// true：段摘要模式（不写账本）
     bool m_summaryOnly = false;
+    QString m_priorContext;
     CompactBulkReplay m_replay;
     QMetaObject::Connection m_providerConnection;
     QTimer m_retryTimer;

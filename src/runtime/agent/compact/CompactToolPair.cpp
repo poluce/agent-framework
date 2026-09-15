@@ -1,5 +1,6 @@
 #include "CompactToolPair.h"
 
+#include "CompactPolicy.h"
 #include "agent/ProviderRunLedger.h"
 
 #include <QHash>
@@ -10,14 +11,7 @@ namespace {
 
 qint64 estimateEntryTokens(const ConversationMessage &entry)
 {
-    qint64 tokens = estimateContextTokensForText(entry.text);
-    if (!entry.toolName.isEmpty()) {
-        tokens += estimateContextTokensForText(entry.toolName);
-    }
-    if (!entry.reasoningContent.isEmpty()) {
-        tokens += estimateContextTokensForText(entry.reasoningContent);
-    }
-    return tokens;
+    return CompactPolicy::estimateEntryTokens(entry);
 }
 
 bool isToolPairKind(const ConversationMessage::Kind kind)

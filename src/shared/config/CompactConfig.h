@@ -17,7 +17,7 @@ struct CompactConfig
     qint64 userMessageTokenBudget = 20000;
 
     /// 压缩 LLM 调用的最大输出 token 数
-    int maxOutputTokens = 80000;
+    int maxOutputTokens = 8192;
 
     /// 压缩 LLM 调用失败时的最大重试次数
     int maxRetries = 2;

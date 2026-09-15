@@ -49,6 +49,7 @@ struct Classification
 {
     bool retryable = false;
     int retryAfterMs = -1;  ///< -1 = 未提供 / 不合理
+    bool isContextWindowExceeded = false;
 };
 
 /// 连接级(0)/408/409/429/529/≥500 → retryable；401/400/403/404/422 → 否。
