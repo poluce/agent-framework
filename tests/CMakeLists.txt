@@ -78,6 +78,7 @@ if(_fw_have_src)
 
     agent_fw_add_kernel_test(agent_patch_utils_tests PatchUtilsTests.cpp)
     agent_fw_add_kernel_test(agent_ansi_strip_tests AnsiStripTests.cpp)
+    agent_fw_add_kernel_test(agent_run_command_tool_tests RunCommandToolTests.cpp)
     agent_fw_add_kernel_test(agent_builtin_read_glob_grep_tests BuiltinToolsReadGlobGrepTests.cpp)
     agent_fw_add_kernel_test(agent_write_concurrency_tests WriteConcurrencyTests.cpp)
     agent_fw_add_kernel_test(agent_write_tools_enhancement_tests WriteToolsEnhancementTests.cpp)

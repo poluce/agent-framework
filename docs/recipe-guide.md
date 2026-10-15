@@ -277,7 +277,7 @@ cfg.externalToolSource = mcp;                    // 同一会话内多角色并�
 
 ## 8. 脚本工具（agent 自加工具）
 
-`ScriptToolSource` 把磁盘上的脚本（py / js / ts）变成内核工具，并给 agent 一条**运行时自加工具**的路径。C++ 无法在运行时编译，动态工具的现实路径就是脚本（或 MCP 外部进程）。
+`ScriptToolSource` 把磁盘上的脚本（py / ts）变成内核工具，并给 agent 一条**运行时自加工具**的路径。C++ 无法在运行时编译，动态工具的现实路径就是脚本（或 MCP 外部进程）。
 
 ### 8.1 装配
 
@@ -285,7 +285,7 @@ cfg.externalToolSource = mcp;                    // 同一会话内多角色并�
 auto *scriptSource = new ScriptToolSource(host);
 scriptSource->setToolDirectory(host->toolDir());          // 持久：重启扫描加载
 scriptSource->setEphemeralDirectory(host->blobDir());     // 临时：会话结束删除
-scriptSource->setRuntimeCommand("py", "python3");         // 缺省 python3/node/ts-node
+scriptSource->setRuntimeCommand("py", "python3");         // 缺省探测 python3/python/py；ts 探测 tsx/ts-node/node
 cfg.externalToolSource = scriptSource;                    // 会话级注入（同 MCP）
 ```
 
@@ -306,14 +306,14 @@ agent 用一套元工具管理自建工具（增删改查闭环）：
 | `name` | 工具名（字母/数字/下划线，不能以数字开头） |
 | `description` | 给模型的描述（注册后自动附带 `[自建工具]` 标记与维护提示） |
 | `code` | 脚本代码（协议见 8.3） |
-| `language` | py / js / ts，缺省 py |
+| `language` | py / ts，缺省 py。ts 自动探测 `tsx`、`ts-node` 或 Node 22.6+ `--experimental-strip-types` |
 | `mode` | sync（同步返回）/ push（常驻 + 事件推送），缺省 sync |
 | `input_schema` | 工具入参 JSON Schema |
 | `ephemeral` | true = 临时工具（会话结束删除），缺省 false |
 
 ### 8.3 脚本协议（JSON 行，stdin/stdout）
 
-脚本从 stdin 读请求，向 stdout 写结果（**stdout 只允许协议行**，调试输出走 stderr；访问工程文件读取 `workingDirectory`）：
+脚本从 stdin 读请求，向 stdout 写结果（**stdout 只允许协议行**，调试输出走 stderr；访问工程文件读取 `workingDirectory`）。Python 每次输出后 `flush`；TypeScript 用 `process.stdout.write(JSON.stringify(obj) + "\\n")`，不要 `console.log`。
 
 ```json
 {"type":"invoke","id":"<reqId>","callId":"<callId>","tool":"<name>","args":{...},"workingDirectory":"<当前工作区>"}

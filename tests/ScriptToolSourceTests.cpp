@@ -5,6 +5,7 @@
 #include "agent/AgentSession.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -47,6 +48,48 @@ QString findPython()
         }
     }
     return {};
+}
+
+bool tsRuntimeAvailable()
+{
+    ScriptToolSource source;
+    const auto cfg = source.runtimeConfig(QStringLiteral("ts"));
+    if (cfg.command.isEmpty()) {
+        return false;
+    }
+    if (QFileInfo::exists(cfg.command)) {
+        return true;
+    }
+    return !QStandardPaths::findExecutable(QFileInfo(cfg.command).fileName()).isEmpty();
+}
+
+QString tsEchoScript()
+{
+    return QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  const who = (req.args && req.args.who) ? String(req.args.who) : \"\";\n"
+        "  const out = { type: \"result\", id: req.id, ok: true, text: \"ts:\" + who };\n"
+        "  process.stdout.write(JSON.stringify(out) + \"\\n\");\n"
+        "});\n");
+}
+
+QString tsLoopScript(const QString &textExpr)
+{
+    return QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "function send(obj: object) {\n"
+        "  process.stdout.write(JSON.stringify(obj) + \"\\n\");\n"
+        "}\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  if (req.type === \"invoke\") {\n"
+        "    send({ type: \"result\", id: req.id, ok: true, text: %1 });\n"
+        "  }\n"
+        "});\n").arg(textExpr);
 }
 
 ToolResult invokeSync(ScriptToolSource &source, const QString &toolName,
@@ -117,6 +160,27 @@ private slots:
     void createTool_probeMismatchedId_intercepted();
     void inspectTool_probeAction();
     void syncInvoke_utf8ChineseHandling();
+    void scan_ignoresJsFiles();
+    void createTool_languageSpecIsPyAndTs();
+    void syncInvoke_tsEndToEnd();
+    void createTool_tsProbeSuccess();
+    void pushEvent_tsDeliversToMailbox();
+    void sessionClose_tsKillsProcessesAndCleansEphemeral();
+    void sessionClear_tsDropsEphemeral();
+    void syncInvoke_tsBareJsonOneShot();
+    void syncInvoke_tsBareJsonWithoutNewline();
+    void syncInvoke_tsUnknownTypeFailsImmediately();
+    void pushInvoke_tsBareJsonRequiresEnvelope();
+    void createTool_tsUpdateRestartsProcess();
+    void syncInvoke_tsTimeoutFailsThisCall();
+    void syncInvoke_tsCrashIncludesStderr();
+    void syncInvoke_tsReceivesWorkingDirectory();
+    void createTool_tsProbeSyntaxError();
+    void createTool_tsProbeMismatchedId();
+    void inspectTool_tsProbeAction();
+    void syncInvoke_tsUtf8Chinese();
+    void createTool_missingTsRuntimeReportsAbsence();
+    void invoke_missingTsRuntimeReportsAbsence();
 };
 
 void ScriptToolSourceTests::scan_persistentAndEphemeral()
@@ -130,7 +194,7 @@ void ScriptToolSourceTests::scan_persistentAndEphemeral()
     QVERIFY(writeScript(toolDir + QStringLiteral("/agent-0/hello.py"),
                         manifestLine(QStringLiteral("hello"), QStringLiteral("打招呼"), QStringLiteral("sync"))
                             + QStringLiteral("\nprint('hi')\n")));
-    QVERIFY(writeScript(ephDir + QStringLiteral("/agent-1/tmp.js"),
+    QVERIFY(writeScript(ephDir + QStringLiteral("/agent-1/tmp.ts"),
                         QStringLiteral("// @tool ")
                             + QString::fromUtf8(QJsonDocument(QJsonObject{
                                 {QStringLiteral("name"), QStringLiteral("tmp")},
@@ -142,7 +206,7 @@ void ScriptToolSourceTests::scan_persistentAndEphemeral()
     QVERIFY(writeScript(toolDir + QStringLiteral("/agent-0/plain.py"),
                         QStringLiteral("print(1)\n")));
 
-    const QString ephFile = ephDir + QStringLiteral("/agent-1/tmp.js");
+    const QString ephFile = ephDir + QStringLiteral("/agent-1/tmp.ts");
     {
         ScriptToolSource source;
         source.setToolDirectory(toolDir);
@@ -246,6 +310,14 @@ void ScriptToolSourceTests::createTool_validation()
         {QStringLiteral("language"), QStringLiteral("ruby")},
     }, ctx);
     QVERIFY(r.isError);
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ok")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), QStringLiteral("x")},
+        {QStringLiteral("language"), QStringLiteral("js")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("py/ts")));
     // 非法 mode
     r = invokeSync(source, QStringLiteral("create_tool"), {
         {QStringLiteral("name"), QStringLiteral("ok")},
@@ -684,6 +756,7 @@ void ScriptToolSourceTests::createTool_codeDescriptionDocumentsEnvelope()
     QVERIFY(codeDesc.contains(QStringLiteral("type=result")));
     QVERIFY(codeDesc.contains(QStringLiteral("push")));
     QVERIFY(codeDesc.contains(QStringLiteral("workingDirectory")));
+    QVERIFY(codeDesc.contains(QStringLiteral("process.stdout.write")));
     QVERIFY(modeDesc.contains(QStringLiteral("信封")));
 }
 
@@ -1406,6 +1479,724 @@ void ScriptToolSourceTests::syncInvoke_utf8ChineseHandling()
     QVERIFY(!r.isError);
     QVERIFY(r.text.contains(QStringLiteral("你好，世界！这是一段中文 UTF-8 测试字符串。")));
     QVERIFY(r.text.contains(QStringLiteral("【测试成功✓】")));
+}
+
+void ScriptToolSourceTests::scan_ignoresJsFiles()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString toolDir = tmp.path() + QStringLiteral("/tools");
+    QVERIFY(QDir().mkpath(toolDir + QStringLiteral("/agent-0")));
+    QVERIFY(writeScript(toolDir + QStringLiteral("/agent-0/legacy.js"),
+                        QStringLiteral("// @tool ")
+                            + QString::fromUtf8(QJsonDocument(QJsonObject{
+                                {QStringLiteral("name"), QStringLiteral("legacy")},
+                                {QStringLiteral("description"), QStringLiteral("旧 js")},
+                                {QStringLiteral("mode"), QStringLiteral("sync")},
+                            }).toJson(QJsonDocument::Compact))
+                            + QStringLiteral("\nconsole.log(1)\n")));
+    QVERIFY(writeScript(toolDir + QStringLiteral("/agent-0/ok.ts"),
+                        QStringLiteral("// @tool ")
+                            + QString::fromUtf8(QJsonDocument(QJsonObject{
+                                {QStringLiteral("name"), QStringLiteral("ok")},
+                                {QStringLiteral("description"), QStringLiteral("ts")},
+                                {QStringLiteral("mode"), QStringLiteral("sync")},
+                            }).toJson(QJsonDocument::Compact))
+                            + QStringLiteral("\nconsole.log(1)\n")));
+
+    ScriptToolSource source;
+    source.setToolDirectory(toolDir);
+    QVERIFY(!source.hasTool(QStringLiteral("legacy")));
+    QVERIFY(source.hasTool(QStringLiteral("ok")));
+}
+
+void ScriptToolSourceTests::createTool_languageSpecIsPyAndTs()
+{
+    ScriptToolSource source;
+    QString languageDesc;
+    for (const ToolSpec &spec : source.specs()) {
+        if (spec.name != QStringLiteral("create_tool")) {
+            continue;
+        }
+        languageDesc = spec.inputSchema.value(QStringLiteral("properties")).toObject()
+                           .value(QStringLiteral("language")).toObject()
+                           .value(QStringLiteral("description")).toString();
+    }
+    QVERIFY(languageDesc.contains(QStringLiteral("py / ts")));
+    QVERIFY(!languageDesc.contains(QStringLiteral("js")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsEndToEnd()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时（tsx / ts-node / Node 类型剥离），跳过 TypeScript 端到端测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ts_echo")},
+        {QStringLiteral("description"), QStringLiteral("ts 回显")},
+        {QStringLiteral("code"), tsEchoScript()},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY(r.success);
+    QVERIFY(source.hasTool(QStringLiteral("ts_echo")));
+    QVERIFY(source.toolFilePath(QStringLiteral("ts_echo")).endsWith(QStringLiteral(".ts")));
+
+    r = invokeSync(source, QStringLiteral("ts_echo"), {
+        {QStringLiteral("who"), QStringLiteral("kit")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(r.text.contains(QStringLiteral("ts:kit")));
+}
+
+void ScriptToolSourceTests::createTool_tsProbeSuccess()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 探针测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ts_probe")},
+        {QStringLiteral("description"), QStringLiteral("ts 探针")},
+        {QStringLiteral("code"), tsEchoScript()},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(r.text.contains(QStringLiteral("协议自检合格")));
+    QVERIFY(r.text.contains(QStringLiteral("耗时")));
+}
+
+void ScriptToolSourceTests::pushEvent_tsDeliversToMailbox()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript push 测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+
+    SessionRuntime defaults;
+    defaults.workingDirectory = tmp.path();
+    AgentSessionConfig cfg;
+    cfg.globalDefaults = &defaults;
+    AgentSession session(cfg);
+    Agent *agent = session.insertUnit(QStringLiteral("agent-0"), QStringLiteral("测试"));
+    QVERIFY(agent);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.session = &session;
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "function send(obj: object) {\n"
+        "  process.stdout.write(JSON.stringify(obj) + \"\\n\");\n"
+        "}\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  if (req.type === \"invoke\") {\n"
+        "    send({ type: \"result\", id: req.id, ok: true, text: \"subscribed\" });\n"
+        "    setTimeout(() => {\n"
+        "      send({ type: \"event\", text: \"tick\", payload: { n: 1 } });\n"
+        "    }, 300);\n"
+        "  }\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("watch")},
+        {QStringLiteral("description"), QStringLiteral("监控")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("mode"), QStringLiteral("push")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+
+    r = invokeSync(source, QStringLiteral("watch"), QJsonObject{}, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(r.text, QStringLiteral("subscribed"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(agent->hasPendingInboxMessages(), 10000);
+    const QList<AgentInboxMessage> msgs = agent->takePendingInboxMessages();
+    QCOMPARE(msgs.size(), 1);
+    QCOMPARE(msgs.first().type, QStringLiteral("tool_event"));
+    QCOMPARE(msgs.first().fromAgentId, QStringLiteral("watch"));
+    QCOMPARE(msgs.first().payload.value(QStringLiteral("n")).toInt(), 1);
+}
+
+void ScriptToolSourceTests::sessionClose_tsKillsProcessesAndCleansEphemeral()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 会话关闭测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setEphemeralDirectory(tmp.path() + QStringLiteral("/eph"));
+    source.setInvokeTimeoutMs(10000);
+    const QString code = tsLoopScript(QStringLiteral("\"ok\""));
+    const QString ephFile = tmp.path() + QStringLiteral("/eph/agent-0/tmp.ts");
+    {
+        SessionRuntime defaults;
+        defaults.workingDirectory = tmp.path();
+        AgentSessionConfig cfg;
+        cfg.globalDefaults = &defaults;
+        cfg.externalToolSource = &source;
+        AgentSession session(cfg);
+        ToolInvokeContext ctx;
+        ctx.agentId = QStringLiteral("agent-0");
+        ctx.session = &session;
+
+        ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+            {QStringLiteral("name"), QStringLiteral("echo")},
+            {QStringLiteral("description"), QStringLiteral("d")},
+            {QStringLiteral("code"), code},
+            {QStringLiteral("language"), QStringLiteral("ts")},
+            {QStringLiteral("verify"), false},
+        }, ctx);
+        QVERIFY2(r.success, qPrintable(r.text));
+        r = invokeSync(source, QStringLiteral("create_tool"), {
+            {QStringLiteral("name"), QStringLiteral("tmp")},
+            {QStringLiteral("description"), QStringLiteral("d")},
+            {QStringLiteral("code"), code},
+            {QStringLiteral("language"), QStringLiteral("ts")},
+            {QStringLiteral("ephemeral"), true},
+            {QStringLiteral("verify"), false},
+        }, ctx);
+        QVERIFY2(r.success, qPrintable(r.text));
+        QVERIFY(QFile::exists(ephFile));
+
+        r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+        QVERIFY2(r.success, qPrintable(r.text));
+        QCOMPARE(source.processCount(), 1);
+    }
+    QCOMPARE(source.processCount(), 0);
+    QVERIFY(!QFile::exists(ephFile));
+    QVERIFY(QFile::exists(tmp.path() + QStringLiteral("/tools/agent-0/echo.ts")));
+}
+
+void ScriptToolSourceTests::sessionClear_tsDropsEphemeral()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 会话清空测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setEphemeralDirectory(tmp.path() + QStringLiteral("/eph"));
+    source.setInvokeTimeoutMs(10000);
+    const QString code = tsLoopScript(QStringLiteral("\"ok\""));
+    const QString ephFile = tmp.path() + QStringLiteral("/eph/agent-0/tmp.ts");
+
+    SessionRuntime defaults;
+    defaults.workingDirectory = tmp.path();
+    AgentSessionConfig cfg;
+    cfg.globalDefaults = &defaults;
+    cfg.externalToolSource = &source;
+    AgentSession session(cfg);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.session = &session;
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("echo")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("tmp")},
+        {QStringLiteral("description"), QStringLiteral("d")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("ephemeral"), true},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(QFile::exists(ephFile));
+    r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(source.processCount() >= 1);
+
+    session.clear();
+    QCOMPARE(source.processCount(), 0);
+    QVERIFY(!QFile::exists(ephFile));
+    QVERIFY(QFile::exists(tmp.path() + QStringLiteral("/tools/agent-0/echo.ts")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsBareJsonOneShot()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 裸 JSON 测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.once(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  const who = (req.args && req.args.who) ? String(req.args.who) : \"\";\n"
+        "  process.stdout.write(JSON.stringify({ ok: true, text: \"bare:\" + who }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("stats")},
+        {QStringLiteral("description"), QStringLiteral("一次性")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("stats"), {
+        {QStringLiteral("who"), QStringLiteral("world")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(r.text, QStringLiteral("bare:world"));
+    QVERIFY(!r.text.contains(QStringLiteral("脚本进程退出")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsBareJsonWithoutNewline()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 无换行测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.once(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  const who = (req.args && req.args.who) ? String(req.args.who) : \"\";\n"
+        "  process.stdout.write(JSON.stringify({ ok: true, text: \"nl:\" + who }));\n"
+        "  process.exit(0);\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("noline")},
+        {QStringLiteral("description"), QStringLiteral("无换行")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("noline"), {
+        {QStringLiteral("who"), QStringLiteral("x")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(r.text, QStringLiteral("nl:x"));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsUnknownTypeFailsImmediately()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 协议错误测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.once(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  process.stdout.write(JSON.stringify({ type: \"nope\", id: req.id, ok: true, text: \"x\" }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("badtype")},
+        {QStringLiteral("description"), QStringLiteral("错类型")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("badtype"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("需要 type=result 且带回请求 id")));
+}
+
+void ScriptToolSourceTests::pushInvoke_tsBareJsonRequiresEnvelope()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript push 信封测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.once(\"line\", (line: string) => {\n"
+        "  process.stdout.write(JSON.stringify({ ok: true, text: \"bare\" }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("pushbare")},
+        {QStringLiteral("description"), QStringLiteral("push 裸 JSON")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("mode"), QStringLiteral("push")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("pushbare"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("需要 type=result 且带回请求 id")));
+}
+
+void ScriptToolSourceTests::createTool_tsUpdateRestartsProcess()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 更新重启测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("echo")},
+        {QStringLiteral("description"), QStringLiteral("v1")},
+        {QStringLiteral("code"), tsLoopScript(QStringLiteral("\"v1\""))},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(r.text, QStringLiteral("v1"));
+    QCOMPARE(source.processCount(), 1);
+
+    r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("echo")},
+        {QStringLiteral("description"), QStringLiteral("v2")},
+        {QStringLiteral("code"), tsLoopScript(QStringLiteral("\"v2\""))},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(source.processCount(), 0);
+
+    r = invokeSync(source, QStringLiteral("echo"), QJsonObject{}, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QCOMPARE(r.text, QStringLiteral("v2"));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsTimeoutFailsThisCall()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 超时测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(2500);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", () => {});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("hang")},
+        {QStringLiteral("description"), QStringLiteral("挂起")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("hang"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("脚本工具调用超时")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsCrashIncludesStderr()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 崩溃测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", () => {\n"
+        "  throw new Error(\"custom_crash_traceback_marker\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("crash_tool")},
+        {QStringLiteral("description"), QStringLiteral("故意抛异常")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("crash_tool"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("脚本进程退出")));
+    QVERIFY(r.text.contains(QStringLiteral("custom_crash_traceback_marker")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsReceivesWorkingDirectory()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript workingDirectory 测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path() + QStringLiteral("/my_workspace");
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.once(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  const cwd = req.workingDirectory ? String(req.workingDirectory) : \"\";\n"
+        "  process.stdout.write(JSON.stringify({ ok: true, text: \"cwd:\" + cwd }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("cwd_tool")},
+        {QStringLiteral("description"), QStringLiteral("回显工作区")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("cwd_tool"), QJsonObject{}, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(r.text.contains(QStringLiteral("cwd:")));
+    QVERIFY(r.text.contains(QStringLiteral("my_workspace")));
+}
+
+void ScriptToolSourceTests::createTool_tsProbeSyntaxError()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript 语法探针测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("probe_bad_syntax")},
+        {QStringLiteral("description"), QStringLiteral("语法错误脚本")},
+        {QStringLiteral("code"), QStringLiteral("function ( {\n")},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("未通过协议自检")));
+}
+
+void ScriptToolSourceTests::createTool_tsProbeMismatchedId()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript id 探针测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", (line: string) => {\n"
+        "  process.stdout.write(JSON.stringify({ type: \"result\", id: \"hardcoded_wrong_id\", ok: true, text: \"bad\" }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("probe_wrong_id")},
+        {QStringLiteral("description"), QStringLiteral("硬编码错误 id")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("与当前待处理请求不匹配")));
+}
+
+void ScriptToolSourceTests::inspectTool_tsProbeAction()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript inspect 探针测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("test_tool")},
+        {QStringLiteral("description"), QStringLiteral("测试工具")},
+        {QStringLiteral("code"), tsLoopScript(QStringLiteral("\"pong\""))},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("inspect_tool"), {
+        {QStringLiteral("name"), QStringLiteral("test_tool")},
+        {QStringLiteral("action"), QStringLiteral("probe")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(r.text.contains(QStringLiteral("协议自检通过")));
+    QVERIFY(r.text.contains(QStringLiteral("耗时")));
+}
+
+void ScriptToolSourceTests::syncInvoke_tsUtf8Chinese()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过 TypeScript UTF-8 测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setInvokeTimeoutMs(10000);
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+    ctx.workingDirectory = tmp.path();
+
+    const QString code = QStringLiteral(
+        "const readline = require(\"readline\");\n"
+        "const rl = readline.createInterface({ input: process.stdin });\n"
+        "rl.on(\"line\", (line: string) => {\n"
+        "  const req = JSON.parse(line);\n"
+        "  const msg = (req.args && req.args.msg) ? String(req.args.msg) : \"\";\n"
+        "  process.stdout.write(JSON.stringify({ type: \"result\", id: req.id, ok: true, text: \"收到：\" + msg + \"【测试成功✓】\" }) + \"\\n\");\n"
+        "});\n");
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("chinese_echo")},
+        {QStringLiteral("description"), QStringLiteral("中文回显")},
+        {QStringLiteral("code"), code},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    r = invokeSync(source, QStringLiteral("chinese_echo"), {
+        {QStringLiteral("msg"), QStringLiteral("你好，世界！这是一段中文 UTF-8 测试字符串。")},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+    QVERIFY(r.text.contains(QStringLiteral("你好，世界！这是一段中文 UTF-8 测试字符串。")));
+    QVERIFY(r.text.contains(QStringLiteral("【测试成功✓】")));
+}
+
+void ScriptToolSourceTests::createTool_missingTsRuntimeReportsAbsence()
+{
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    source.setRuntimeCommand(QStringLiteral("ts"), QStringLiteral("no-such-ts-runtime-xyz"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ts_missing")},
+        {QStringLiteral("description"), QStringLiteral("缺解释器")},
+        {QStringLiteral("code"), QStringLiteral("export {}\n")},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+    }, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("未找到 TypeScript 解释器")));
+    QVERIFY(r.text.contains(QStringLiteral("no-such-ts-runtime-xyz")));
+    QVERIFY(!r.text.contains(QStringLiteral("安装")));
+    QVERIFY(!r.text.contains(QStringLiteral("协议自检")));
+    QVERIFY(!r.text.contains(QStringLiteral("修改代码")));
+    QVERIFY(!source.hasTool(QStringLiteral("ts_missing")));
+}
+
+void ScriptToolSourceTests::invoke_missingTsRuntimeReportsAbsence()
+{
+    if (!tsRuntimeAvailable()) {
+        QSKIP("未找到 ts 运行时，跳过缺解释器调用测试");
+    }
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    ScriptToolSource source;
+    source.setToolDirectory(tmp.path() + QStringLiteral("/tools"));
+    ToolInvokeContext ctx;
+    ctx.agentId = QStringLiteral("agent-0");
+
+    ToolResult r = invokeSync(source, QStringLiteral("create_tool"), {
+        {QStringLiteral("name"), QStringLiteral("ts_later")},
+        {QStringLiteral("description"), QStringLiteral("稍后缺解释器")},
+        {QStringLiteral("code"), tsEchoScript()},
+        {QStringLiteral("language"), QStringLiteral("ts")},
+        {QStringLiteral("verify"), false},
+    }, ctx);
+    QVERIFY2(r.success, qPrintable(r.text));
+
+    source.setRuntimeCommand(QStringLiteral("ts"), QStringLiteral("no-such-ts-runtime-xyz"));
+    r = invokeSync(source, QStringLiteral("ts_later"), QJsonObject{}, ctx);
+    QVERIFY(r.isError);
+    QVERIFY(r.text.contains(QStringLiteral("未找到 TypeScript 解释器")));
+    QVERIFY(r.text.contains(QStringLiteral("no-such-ts-runtime-xyz")));
+    QVERIFY(!r.text.contains(QStringLiteral("安装")));
+    QVERIFY(!r.text.contains(QStringLiteral("协议自检")));
+    QVERIFY(!r.text.contains(QStringLiteral("修改代码")));
 }
 
 QTEST_MAIN(ScriptToolSourceTests)

@@ -138,6 +138,7 @@ public:
     [[nodiscard]] bool prefersSteerDelivery() const;
     /// 提交代理任务（NextTurn 开轮）；返回是否成功入队（空消息返回 false）。
     bool submitAgentTask(const QString &message);
+    /// 取消当前 Turn；in-flight 收件箱消息回滚为 pending，配方可再次 take。
     void cancelCurrentTurn();
     /// 失败收口后同会话再打一轮；无待重放用户消息则 false。
     [[nodiscard]] bool retryFailedMessage();

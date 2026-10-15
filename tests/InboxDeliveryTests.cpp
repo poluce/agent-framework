@@ -24,6 +24,8 @@ private slots:
     void clearInbox_emitsDroppedForRemaining();
     void enqueueAgentTask_emptyReturnsFalse();
     void ackRequeue_unknownIdsAreNoOp();
+    void cancelCurrentTurn_requeuesInFlight();
+    void cancelCurrentTurn_keepsPendingAndRequeuesInFlight();
 
 private:
     QTemporaryDir m_dir;
@@ -267,6 +269,51 @@ void InboxDeliveryTests::ackRequeue_unknownIdsAreNoOp()
     agent.ackInboxMessages({QStringLiteral("missing")});
     agent.requeueInboxMessages({QStringLiteral("missing")});
     QVERIFY(!agent.hasPendingInboxMessages());
+}
+
+void InboxDeliveryTests::cancelCurrentTurn_requeuesInFlight()
+{
+    Agent agent(QStringLiteral("agent-0"), QStringLiteral("Main"), m_runtime);
+
+    AgentInboxMessage msg;
+    msg.id = QStringLiteral("in-flight");
+    msg.fromAgentId = QStringLiteral("agent-1");
+    msg.content = QStringLiteral("deliver me");
+    QVERIFY(agent.enqueueInboxMessage(msg));
+    QCOMPARE(agent.takePendingInboxMessages().size(), 1);
+    QVERIFY(!agent.hasPendingInboxMessages());
+
+    agent.cancelCurrentTurn();
+    QVERIFY(agent.hasPendingInboxMessages());
+
+    const auto again = agent.takePendingInboxMessages();
+    QCOMPARE(again.size(), 1);
+    QCOMPARE(again.first().id, QStringLiteral("in-flight"));
+    agent.ackInboxMessages({QStringLiteral("in-flight")});
+}
+
+void InboxDeliveryTests::cancelCurrentTurn_keepsPendingAndRequeuesInFlight()
+{
+    Agent agent(QStringLiteral("agent-0"), QStringLiteral("Main"), m_runtime);
+
+    AgentInboxMessage first;
+    first.id = QStringLiteral("first");
+    first.fromAgentId = QStringLiteral("agent-1");
+    first.content = QStringLiteral("first");
+    QVERIFY(agent.enqueueInboxMessage(first));
+    QCOMPARE(agent.takePendingInboxMessages().size(), 1);
+
+    AgentInboxMessage second;
+    second.id = QStringLiteral("second");
+    second.fromAgentId = QStringLiteral("agent-1");
+    second.content = QStringLiteral("second");
+    QVERIFY(agent.enqueueInboxMessage(second));
+    QVERIFY(agent.hasPendingInboxMessages());
+
+    agent.cancelCurrentTurn();
+    const auto taken = agent.takePendingInboxMessages();
+    QCOMPARE(taken.size(), 2);
+    agent.ackInboxMessages({QStringLiteral("first"), QStringLiteral("second")});
 }
 
 QTEST_MAIN(InboxDeliveryTests)

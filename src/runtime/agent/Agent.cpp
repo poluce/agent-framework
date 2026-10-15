@@ -482,6 +482,19 @@ void Agent::cancelCurrentTurn()
         << logf("agentId", m_agentId)
         << logf("boundaryWait", m_compact && m_compact->waitingAtBoundary());
 
+    int rolledBack = 0;
+    for (AgentInboxMessage &msg : m_inbox) {
+        if (msg.inFlight && !msg.acked) {
+            msg.inFlight = false;
+            ++rolledBack;
+        }
+    }
+    if (rolledBack > 0) {
+        LOGD(LogCat::Agent) << "取消时回滚 in-flight 收件箱"
+            << logf("agentId", m_agentId)
+            << logf("count", rolledBack);
+    }
+
     if (m_compact && m_compact->cancelBoundaryWait()) {
         handleLoopStateChanged();
         return;

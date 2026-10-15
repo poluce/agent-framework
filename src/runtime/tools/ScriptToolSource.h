@@ -11,7 +11,7 @@
 class AbstractSession;
 
 /**
- * @brief 脚本工具桥：把磁盘上的脚本（py/js/ts）变成内核工具。
+ * @brief 脚本工具桥：把磁盘上的脚本（py/ts）变成内核工具。
  *
  * 每个脚本一个长驻进程，JSON 行协议双通道：
  *  - sync：invoke 请求 → 一行 JSON 结果（推荐 type=result 带回 id；无 type 时绑定这次调用）
@@ -30,7 +30,7 @@ public:
     {
         ToolSpec spec;
         QString filePath;
-        QString language;   // py / js / ts
+        QString language;   // py / ts
         QString scope = QStringLiteral("project"); // project / global / session
         bool ephemeral = false;
         bool pushMode = false;
@@ -41,6 +41,8 @@ public:
         QString command;
         QStringList defaultArgs;
         QProcessEnvironment environment;
+        /// 非空：解释器不可用。回给模型的原因，不要当成脚本语法错误。
+        QString unavailableReason;
     };
 
     explicit ScriptToolSource(QObject *parent = nullptr);
@@ -57,7 +59,7 @@ public:
     /// 语言 → 运行时完整配置（含启动参数与特定环境变量）。
     void setRuntimeConfig(const QString &language, const ScriptRuntimeConfig &config);
     ScriptRuntimeConfig runtimeConfig(const QString &language) const;
-    /// 语言 → 运行时命令（缺省 py=python3 / js=node / ts=ts-node）。
+    /// 语言 → 运行时命令（缺省 py 探测 python3/python/py；ts 探测 tsx / ts-node / node 类型剥离）。
     void setRuntimeCommand(const QString &language, const QString &command);
     /// sync 型进程空闲回收毫秒数（缺省 60000；push 型常驻）。
     void setIdleTimeoutMs(int ms);
@@ -91,6 +93,7 @@ private:
     void handleDeleteTool(const ToolCall &call, const ToolInvokeContext &ctx, Completion done);
     void handleInspectTool(const ToolCall &call, const ToolInvokeContext &ctx, Completion done);
     void dropProcess(const QString &name, const QString &reason);
+    [[nodiscard]] QString runtimeBlockReason(const QString &language) const;
     void rescan();
     void scanDir(const QString &dir, const QString &defaultScope);
     ScriptProcess *processFor(const QString &toolName);

@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-10-15
+
+### 🔴 Breaking Changes（升级前必看）
+
+- **自建工具不再接受 `js`**：`create_tool` 只接受 `py` / `ts`。已有 `.js` 脚本不再被扫描加载。
+
+### 🟢 新增功能
+
+- **TypeScript 自建工具**：按 `tsx` → `ts-node` → Node 22.6+ 类型剥离探测解释器。协议与 Python 对齐：同步调用、push 事件、一次性退出、项目/全局/会话作用域都能用。
+- **缺解释器只报缺失**：创建或调用时回报未找到的解释器；Node 低于 22.6 且没有 `tsx` / `ts-node` 时，回报版本过低和未找到的命令。不再写成协议自检失败。
+
+### 🔵 修复
+
+- **#40 Windows/PowerShell 二次嵌套**：宿主已是 pwsh/powershell 时，剥掉命令外层多余的 `pwsh/powershell -Command`。`command` 说明要求直接写命令正文。
+- **#39 cancel 回滚 in-flight 邮箱**：取消当前轮时，已 take 尚未 ack 的信件回到 pending，配方可以再次投递。跨单元弹跳上限、单元数量上限、工具源所有权不在本次。
+
 ## [0.6.6] - 2026-09-15
 
 ### 🟢 新增功能

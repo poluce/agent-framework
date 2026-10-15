@@ -40,6 +40,13 @@ public:
     /** 剥除进程输出中的 ANSI 转义序列（颜色/样式码；供测试与复用）。 */
     static QString stripAnsi(QString text);
 
+    /**
+     * 剥掉命令正文外层多余的 pwsh/powershell -Command 包装。
+     * 宿主已用配置的 shell 启动时，模型再包一层会导致变量被外层展开。
+     * 未识别为该包装则原样返回。
+     */
+    static QString unwrapNestedPowerShellCommand(const QString &command);
+
     /// session 仅在需要后台任务通知时传入，前台执行可传 nullptr
     explicit RunCommandTool(QObject *parent = nullptr, AbstractSession *session = nullptr);
     ~RunCommandTool() override;

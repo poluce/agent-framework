@@ -47,6 +47,130 @@ ToolResult errorResult(const QString &toolName, const QString &text, const QStri
     return tr;
 }
 
+bool parseNodeVersion(const QString &text, int *major, int *minor)
+{
+    QString s = text.trimmed();
+    if (s.startsWith(QLatin1Char('v')) || s.startsWith(QLatin1Char('V'))) {
+        s = s.mid(1);
+    }
+    const QStringList parts = s.split(QLatin1Char('.'));
+    if (parts.size() < 2) {
+        return false;
+    }
+    bool okMajor = false;
+    bool okMinor = false;
+    *major = parts.at(0).toInt(&okMajor);
+    *minor = parts.at(1).toInt(&okMinor);
+    return okMajor && okMinor;
+}
+
+bool readNodeVersion(const QString &nodeCmd, int *major, int *minor)
+{
+    QProcess process;
+    process.start(nodeCmd, {QStringLiteral("-v")});
+    if (!process.waitForStarted(2000) || !process.waitForFinished(3000)) {
+        if (process.state() != QProcess::NotRunning) {
+            process.kill();
+            process.waitForFinished(500);
+        }
+        return false;
+    }
+    return parseNodeVersion(QString::fromUtf8(process.readAllStandardOutput()), major, minor);
+}
+
+bool nodeSupportsTypeStrip(int major, int minor)
+{
+    return major > 22 || (major == 22 && minor >= 6);
+}
+
+bool runtimeCommandExists(const QString &command)
+{
+    const QString cmd = command.trimmed();
+    if (cmd.isEmpty()) {
+        return false;
+    }
+    const QFileInfo info(cmd);
+    if (info.isAbsolute() && info.exists()) {
+        return true;
+    }
+    if (!QStandardPaths::findExecutable(cmd).isEmpty()) {
+        return true;
+    }
+    return !info.fileName().isEmpty()
+        && info.fileName() != cmd
+        && !QStandardPaths::findExecutable(info.fileName()).isEmpty();
+}
+
+QString missingRuntimeMessage(const QString &language, const QString &command)
+{
+    const QString shown = command.trimmed().isEmpty()
+        ? QStringLiteral("（空）")
+        : command.trimmed();
+    if (language == QStringLiteral("ts")) {
+        return QStringLiteral("未找到 TypeScript 解释器「%1」。").arg(shown);
+    }
+    if (language == QStringLiteral("py")) {
+        return QStringLiteral("未找到 Python 解释器「%1」。").arg(shown);
+    }
+    return QStringLiteral("未找到语言 %1 的解释器「%2」。").arg(language, shown);
+}
+
+bool isRuntimeEnvironmentError(const QString &detail)
+{
+    return detail.contains(QStringLiteral("未找到 TypeScript 解释器"))
+        || detail.contains(QStringLiteral("未找到 Python 解释器"))
+        || detail.contains(QStringLiteral("低于 22.6"))
+        || detail.contains(QStringLiteral("未找到 tsx"));
+}
+
+ScriptToolSource::ScriptRuntimeConfig detectTsRuntime()
+{
+    ScriptToolSource::ScriptRuntimeConfig config;
+    config.environment.insert(QStringLiteral("NODE_NO_WARNINGS"), QStringLiteral("1"));
+    config.environment.insert(QStringLiteral("NODE_DISABLE_COLORS"), QStringLiteral("1"));
+
+    const QString tsx = QStandardPaths::findExecutable(QStringLiteral("tsx"));
+    if (!tsx.isEmpty()) {
+        config.command = tsx;
+        return config;
+    }
+    const QString tsNode = QStandardPaths::findExecutable(QStringLiteral("ts-node"));
+    if (!tsNode.isEmpty()) {
+        config.command = tsNode;
+        config.defaultArgs = {QStringLiteral("--transpile-only")};
+        return config;
+    }
+    const QString node = QStandardPaths::findExecutable(QStringLiteral("node"));
+    if (!node.isEmpty()) {
+        int major = 0;
+        int minor = 0;
+        const bool haveVersion = readNodeVersion(node, &major, &minor);
+        if (haveVersion && nodeSupportsTypeStrip(major, minor)) {
+            config.command = node;
+            config.defaultArgs = {
+                QStringLiteral("--experimental-strip-types"),
+                QStringLiteral("--no-warnings"),
+            };
+            return config;
+        }
+        config.command = node;
+        if (haveVersion) {
+            config.unavailableReason = QStringLiteral(
+                                           "已找到 Node v%1.%2，但低于 22.6，不能运行 TypeScript。未找到 tsx。未找到 ts-node。")
+                                           .arg(major)
+                                           .arg(minor);
+        } else {
+            config.unavailableReason = QStringLiteral(
+                "已找到 node，但读不到版本。未找到 tsx。未找到 ts-node。");
+        }
+        return config;
+    }
+    config.command = QStringLiteral("ts-node");
+    config.defaultArgs = {QStringLiteral("--transpile-only")};
+    config.unavailableReason = missingRuntimeMessage(QStringLiteral("ts"), config.command);
+    return config;
+}
+
 } // namespace
 
 // ====================================================================
@@ -76,7 +200,12 @@ public:
                 << QString::fromUtf8(err).trimmed();
         });
         connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
-            failPending(formatErrorWithStderr(QStringLiteral("脚本进程错误（%1）").arg(int(err))));
+            const QString base = (err == QProcess::FailedToStart)
+                ? missingRuntimeMessage(m_tool.language, m_runtime.command)
+                : QStringLiteral("脚本进程错误（%1），命令：%2")
+                      .arg(int(err))
+                      .arg(m_runtime.command);
+            failPending(formatErrorWithStderr(base));
             for (QTimer *t : std::as_const(m_invokeTimers)) {
                 t->deleteLater();
             }
@@ -447,28 +576,27 @@ ScriptToolSource::ScriptToolSource(QObject *parent)
     : AbstractToolSource(parent)
 {
     QString pyCmd = QStringLiteral("python3");
+    bool pyFound = false;
     for (const QString &candidate : {QStringLiteral("python3"), QStringLiteral("python"), QStringLiteral("py")}) {
         if (!QStandardPaths::findExecutable(candidate).isEmpty()) {
             pyCmd = candidate;
+            pyFound = true;
             break;
         }
     }
 
     ScriptRuntimeConfig pyConfig;
     pyConfig.command = pyCmd;
+    if (!pyFound) {
+        pyConfig.unavailableReason = missingRuntimeMessage(QStringLiteral("py"), pyCmd);
+    }
     pyConfig.defaultArgs = {QStringLiteral("-u")};
     pyConfig.environment.insert(QStringLiteral("PYTHONIOENCODING"), QStringLiteral("utf-8"));
     pyConfig.environment.insert(QStringLiteral("PYTHONUTF8"), QStringLiteral("1"));
     pyConfig.environment.insert(QStringLiteral("PYTHONUNBUFFERED"), QStringLiteral("1"));
     m_runtimes.insert(QStringLiteral("py"), pyConfig);
 
-    ScriptRuntimeConfig jsConfig;
-    jsConfig.command = QStringLiteral("node");
-    m_runtimes.insert(QStringLiteral("js"), jsConfig);
-
-    ScriptRuntimeConfig tsConfig;
-    tsConfig.command = QStringLiteral("ts-node");
-    m_runtimes.insert(QStringLiteral("ts"), tsConfig);
+    m_runtimes.insert(QStringLiteral("ts"), detectTsRuntime());
 }
 
 ScriptToolSource::~ScriptToolSource()
@@ -542,11 +670,24 @@ void ScriptToolSource::setRuntimeCommand(const QString &language, const QString 
 {
     if (m_runtimes.contains(language)) {
         m_runtimes[language].command = command;
+        m_runtimes[language].unavailableReason.clear();
     } else {
         ScriptRuntimeConfig cfg;
         cfg.command = command;
         m_runtimes.insert(language, cfg);
     }
+}
+
+QString ScriptToolSource::runtimeBlockReason(const QString &language) const
+{
+    const ScriptRuntimeConfig cfg = m_runtimes.value(language);
+    if (!cfg.unavailableReason.trimmed().isEmpty()) {
+        return cfg.unavailableReason.trimmed();
+    }
+    if (!runtimeCommandExists(cfg.command)) {
+        return missingRuntimeMessage(language, cfg.command);
+    }
+    return {};
 }
 
 void ScriptToolSource::setIdleTimeoutMs(int ms)
@@ -608,6 +749,11 @@ void ScriptToolSource::invoke(const ToolCall &call, const ToolInvokeContext &ctx
         done(errorResult(name, QStringLiteral("脚本工具不存在：%1").arg(name), call.id));
         return;
     }
+    const QString blocked = runtimeBlockReason(m_tools.value(name).language);
+    if (!blocked.isEmpty()) {
+        done(errorResult(name, blocked, call.id));
+        return;
+    }
     m_session = ctx.session;
     m_subscribers.insert(name, ctx.agentId);
     ScriptProcess *proc = processFor(name);
@@ -637,9 +783,10 @@ ToolSpec ScriptToolSource::createToolSpec()
                                    "运行时契约："
                                    "1) 每次响应推荐原样回传请求 id 与 type=result 信封（格式：{\"type\":\"result\",\"id\":req[\"id\"],\"ok\":true|false,\"text\":\"...\"}）；"
                                    "2) 顶层建议包含 try...except/catch 全局异常处理，避免进程直接崩溃；"
-                                   "3) Python 建议首行设置 sys.stdout.reconfigure(line_buffering=True, encoding='utf-8') 并在每次输出后 flush。"));
+                                   "3) Python 建议首行设置 sys.stdout.reconfigure(line_buffering=True, encoding='utf-8') 并在每次输出后 flush；"
+                                    "TypeScript 用 process.stdout.write(JSON.stringify(obj)+\"\\n\") 写协议行，调试走 stderr，不要用 console.log。"));
     b.input(QStringLiteral("language"), QStringLiteral("string"),
-            QStringLiteral("py / js / ts，缺省 py"));
+            QStringLiteral("py / ts，缺省 py。ts 自动探测 tsx、ts-node 或 Node 22.6+ 类型剥离"));
     b.input(QStringLiteral("mode"), QStringLiteral("string"),
             QStringLiteral("sync（同步返回，一行结果即可）/ push（常驻，须用 invoke/result/event 信封），缺省 sync"));
     b.input(QStringLiteral("scope"), QStringLiteral("string"),
@@ -710,10 +857,9 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
     if (language.isEmpty()) {
         language = QStringLiteral("py");
     }
-    if (language != QStringLiteral("py") && language != QStringLiteral("js")
-        && language != QStringLiteral("ts")) {
+    if (language != QStringLiteral("py") && language != QStringLiteral("ts")) {
         done(errorResult(call.toolName,
-                         QStringLiteral("language 仅支持 py/js/ts：%1").arg(language),
+                         QStringLiteral("language 仅支持 py/ts：%1").arg(language),
                          call.id));
         return;
     }
@@ -733,6 +879,10 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
         done(errorResult(call.toolName,
                          QStringLiteral("scope 仅支持 project/global/session：%1").arg(scope),
                          call.id));
+        return;
+    }
+    if (const QString blocked = runtimeBlockReason(language); !blocked.isEmpty()) {
+        done(errorResult(call.toolName, blocked, call.id));
         return;
     }
 
@@ -809,6 +959,8 @@ void ScriptToolSource::handleCreateTool(const ToolCall &call, const ToolInvokeCo
             const QString text = QStringLiteral("工具已创建并验证成功：%1（%2，%3，作用域：%4）\n[协议自检合格]\n%5")
                                      .arg(name, language, mode, scope, detail);
             done(okResult(call.toolName, text, call.id));
+        } else if (isRuntimeEnvironmentError(detail)) {
+            done(errorResult(call.toolName, detail, call.id));
         } else {
             const QString text = QStringLiteral("工具 %1 文件已写入，但未通过协议自检：\n%2\n\n"
                                                 "提示：请根据上述自检诊断修改代码后，再次调用 create_tool 同名覆盖。")
@@ -908,6 +1060,8 @@ void ScriptToolSource::handleInspectTool(const ToolCall &call, const ToolInvokeC
             if (passed) {
                 const QString text = QStringLiteral("自建工具 %1 协议自检通过：\n%2").arg(name, detail);
                 done(okResult(call.toolName, text, call.id));
+            } else if (isRuntimeEnvironmentError(detail)) {
+                done(errorResult(call.toolName, detail, call.id));
             } else {
                 const QString text = QStringLiteral("自建工具 %1 协议自检未通过：\n%2\n\n"
                                                     "提示：请根据上述自检诊断修改代码后，使用 create_tool 同名覆盖。").arg(name, detail);
@@ -998,8 +1152,7 @@ void ScriptToolSource::scanDir(const QString &dir, const QString &defaultScope)
     filePaths.sort();
     for (const QString &filePath : filePaths) {
         const QString ext = QFileInfo(filePath).suffix();
-        if (ext != QStringLiteral("py") && ext != QStringLiteral("js")
-            && ext != QStringLiteral("ts")) {
+        if (ext != QStringLiteral("py") && ext != QStringLiteral("ts")) {
             continue;
         }
         QFile f(filePath);
@@ -1142,6 +1295,10 @@ void ScriptToolSource::probeTool(const QString &toolName,
         return;
     }
     const ScriptTool tool = m_tools.value(toolName);
+    if (const QString blocked = runtimeBlockReason(tool.language); !blocked.isEmpty()) {
+        done(false, blocked);
+        return;
+    }
     const ScriptRuntimeConfig runtime = m_runtimes.value(tool.language);
     if (runtime.command.isEmpty()) {
         done(false, QStringLiteral("未配置对应语言（%1）的解释器运行命令").arg(tool.language));

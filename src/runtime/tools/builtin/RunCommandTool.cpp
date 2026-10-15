@@ -48,6 +48,166 @@ void setToolPayload(ToolResult *result, const QString &payloadType, const QJsonO
     result->payload = payload;
 }
 
+int skipWs(const QString &s, int i)
+{
+    while (i < s.size() && s.at(i).isSpace()) {
+        ++i;
+    }
+    return i;
+}
+
+int skipToken(const QString &s, int i)
+{
+    i = skipWs(s, i);
+    if (i >= s.size()) {
+        return i;
+    }
+    const QChar q = s.at(i);
+    if (q == QLatin1Char('"') || q == QLatin1Char('\'')) {
+        ++i;
+        while (i < s.size() && s.at(i) != q) {
+            if (q == QLatin1Char('"') && s.at(i) == QLatin1Char('`') && i + 1 < s.size()) {
+                i += 2;
+                continue;
+            }
+            ++i;
+        }
+        if (i < s.size()) {
+            ++i;
+        }
+        return i;
+    }
+    while (i < s.size() && !s.at(i).isSpace()) {
+        ++i;
+    }
+    return i;
+}
+
+bool isPowerShellExePrefix(const QString &s, int *len)
+{
+    static const QStringList kNames = {
+        QStringLiteral("powershell.exe"),
+        QStringLiteral("powershell"),
+        QStringLiteral("pwsh.exe"),
+        QStringLiteral("pwsh"),
+    };
+    for (const QString &name : kNames) {
+        if (s.size() < name.size()) {
+            continue;
+        }
+        if (s.left(name.size()).compare(name, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        if (s.size() == name.size() || s.at(name.size()).isSpace()) {
+            *len = name.size();
+            return true;
+        }
+    }
+    return false;
+}
+
+QString readFlag(const QString &s, int i, int *end)
+{
+    if (i >= s.size() || s.at(i) != QLatin1Char('-')) {
+        return {};
+    }
+    int j = i + 1;
+    while (j < s.size() && s.at(j).isLetterOrNumber()) {
+        ++j;
+    }
+    *end = j;
+    return s.mid(i, j - i);
+}
+
+QString stripMatchingQuotes(QString inner)
+{
+    inner = inner.trimmed();
+    if (inner.size() < 2) {
+        return inner;
+    }
+    const QChar a = inner.front();
+    const QChar b = inner.back();
+    if ((a == QLatin1Char('"') && b == QLatin1Char('"'))
+        || (a == QLatin1Char('\'') && b == QLatin1Char('\''))) {
+        return inner.mid(1, inner.size() - 2);
+    }
+    return inner;
+}
+
+enum class PsFlag : quint8 { Command, Abort, Value, Switch };
+
+PsFlag classifyPowerShellFlag(const QString &flag)
+{
+    auto eq = [&](const char *name) {
+        return flag.compare(QLatin1String(name), Qt::CaseInsensitive) == 0;
+    };
+    if (eq("-Command") || eq("-c")) {
+        return PsFlag::Command;
+    }
+    if (eq("-File") || eq("-f") || eq("-EncodedCommand") || eq("-ec")
+        || eq("-CommandWithArgs")) {
+        return PsFlag::Abort;
+    }
+    if (eq("-ExecutionPolicy") || eq("-ep")
+        || eq("-InputFormat") || eq("-OutputFormat")
+        || eq("-WindowStyle") || eq("-WorkingDirectory") || eq("-wd")
+        || eq("-ConfigurationName") || eq("-Version") || eq("-Args")) {
+        return PsFlag::Value;
+    }
+    return PsFlag::Switch;
+}
+
+QString unwrapNestedPowerShellOnce(const QString &command)
+{
+    const QString s = command.trimmed();
+    int exeLen = 0;
+    if (!isPowerShellExePrefix(s, &exeLen)) {
+        return command;
+    }
+    int i = skipWs(s, exeLen);
+    if (i >= s.size()) {
+        return command;
+    }
+
+    while (i < s.size()) {
+        i = skipWs(s, i);
+        if (i >= s.size()) {
+            break;
+        }
+        int flagEnd = i;
+        const QString flag = readFlag(s, i, &flagEnd);
+        if (flag.isEmpty()) {
+            return command;
+        }
+        i = flagEnd;
+        const bool hasColon = (i < s.size() && s.at(i) == QLatin1Char(':'));
+        if (hasColon) {
+            ++i;
+        }
+
+        switch (classifyPowerShellFlag(flag)) {
+        case PsFlag::Abort:
+            return command;
+        case PsFlag::Command: {
+            const QString inner = stripMatchingQuotes(s.mid(i));
+            if (inner.isEmpty()) {
+                return command;
+            }
+            return inner;
+        }
+        case PsFlag::Value:
+            i = skipToken(s, i);
+            break;
+        case PsFlag::Switch:
+            if (hasColon) {
+                i = skipToken(s, i);
+            }
+            break;
+        }
+    }
+    return command;
+}
+
 #ifdef Q_OS_WIN
 // PowerShell 默认解析 npm.ps1/npx.ps1，易被 ExecutionPolicy 拦截。
 // 只在「命令位置」且引号外改写为 .cmd，避免改动字符串字面量 / 变量赋值内容。
@@ -182,13 +342,27 @@ QString rewriteWindowsNodeLaunchers(const QString &command)
 
 } // namespace
 
+QString RunCommandTool::unwrapNestedPowerShellCommand(const QString &command)
+{
+    QString current = command;
+    for (int n = 0; n < 3; ++n) {
+        const QString next = unwrapNestedPowerShellOnce(current);
+        if (next == current) {
+            return current;
+        }
+        current = next;
+    }
+    return current;
+}
+
 // ------------------------------------------------------------------
 // 工具规格 (RunCommandTool)
 // ------------------------------------------------------------------
 ToolSpec RunCommandTool::spec() const
 {
     return ToolSpecBuilder("run_command", QStringLiteral("在工作目录内执行 shell 命令。默认使用用户配置的 shell，可通过 shell 参数指定使用的 shell。"), ToolPermissionKind::Command)
-        .requiredInput("command", "string", QStringLiteral("要执行的命令"))
+        .requiredInput("command", "string",
+                       QStringLiteral("要执行的命令。宿主已用配置的 shell 启动，请直接写命令正文，不要再包一层 pwsh -Command 或 powershell -Command。"))
         .input("description", "string", QStringLiteral("命令用途说明，可为空"))
         .input("shell", "string", "pwsh/bash/powershell，不填则使用默认")
         .input("runInBackground", "boolean", QStringLiteral("是否后台运行"))
@@ -263,9 +437,9 @@ RunCommandTool::ShellConfig RunCommandTool::resolveShellCommand(
             config.error = QStringLiteral("未找到 %1 可执行文件。").arg(resolvedShell);
             return config;
         }
-        QString shellCommand = command;
+        QString shellCommand = unwrapNestedPowerShellCommand(command);
 #ifdef Q_OS_WIN
-        shellCommand = rewriteWindowsNodeLaunchers(command);
+        shellCommand = rewriteWindowsNodeLaunchers(shellCommand);
 #endif
         // 按 shell 版本分治处理 ANSI：对象输出的表头颜色码会污染捕获结果。
         QString prefix = QStringLiteral("[Console]::OutputEncoding=[Text.Encoding]::UTF8;");
